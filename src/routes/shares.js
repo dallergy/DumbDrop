@@ -1,10 +1,14 @@
-/** Secure, token-based file and folder sharing. */
+/**
+ * Secure, token-based file and folder sharing.
+ * Handles share creation, public access, PIN-gated downloads, and QR PNG output.
+ */
 const crypto = require('crypto');
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
 const { spawn } = require('child_process');
+const QRCode = require('qrcode');
 const { config } = require('../config');
 const { safeCompare } = require('../utils/security');
 const { isPathWithinUploadDir, formatFileSize } = require('../utils/fileUtils');
@@ -25,6 +29,22 @@ async function writeShares(shares) {
 
 function grantFor(token) {
   return crypto.createHmac('sha256', config.pin || 'no-pin').update(token).digest('hex');
+}
+
+function shareUrl(token) {
+  return new URL(`/share/${token}`, config.baseUrl).toString();
+}
+
+async function renderShareQrPng(url, res) {
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  await QRCode.toFileStream(res, url, {
+    type: 'png',
+    width: 512,
+    margin: 2,
+    errorCorrectionLevel: 'M',
+    color: { dark: '#111827', light: '#ffffff' },
+  });
 }
 
 function hasAccess(req, share) {
@@ -70,8 +90,8 @@ router.post('/', async (req, res, next) => {
     const shares = await readShares();
     shares[token] = share;
     await writeShares(shares);
-    const url = new URL(`/share/${token}`, config.baseUrl).toString();
-    res.status(201).json({ ...share, url });
+    const url = shareUrl(token);
+    res.status(201).json({ ...share, url, qrUrl: `/api/shares/${token}/qr.png` });
   } catch (error) { next(error); }
 });
 
@@ -101,6 +121,14 @@ router.post('/:token/auth', resolveShare, (req, res) => {
     httpOnly: true, sameSite: 'strict', secure: req.secure, path: `/api/shares/${req.share.token}`, maxAge: 24 * 3600 * 1000,
   });
   res.json({ authenticated: true });
+});
+
+router.get('/:token/qr.png', resolveShare, async (req, res, next) => {
+  try {
+    await renderShareQrPng(shareUrl(req.share.token), res);
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.get('/:token/download', resolveShare, (req, res, next) => {

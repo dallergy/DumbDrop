@@ -56,6 +56,8 @@ services:
       DUMBDROP_PIN: 123456
       # Upload without clicking button
       AUTO_UPLOAD: false
+      # Show file list with share/download/delete actions
+      SHOW_FILE_LIST: true
       # The base URL for the application
       # You must update this to the url you use to access your site
       BASE_URL: http://localhost:3000
@@ -73,6 +75,17 @@ docker compose up -d
 
 > **Note:** The `UPLOAD_DIR` environment variable is now explicitly set to `/app/uploads` in the container. The Dockerfile only creates the `uploads` directory, not `local_uploads`. The host directory `./uploads` is mounted to `/app/uploads` for persistent storage.
 
+### Option 2b: Portainer stack (copy/paste)
+
+Use the ready-made stack in [`portainer-stack.yml`](portainer-stack.yml):
+
+1. In Portainer: **Stacks → Add stack → Web editor**
+2. Paste the contents of `portainer-stack.yml`
+3. Set `BASE_URL` to the URL you use to open DumbDrop (required for share links and QR codes)
+4. Deploy
+
+The stack builds from this repository and enables `SHOW_FILE_LIST=true` so the Share button appears on every file and folder.
+
 ### Option 3: Running Locally (For Developers)
 
 For local development setup, troubleshooting, and advanced usage, see the dedicated guide:
@@ -82,7 +95,7 @@ For local development setup, troubleshooting, and advanced usage, see the dedica
 ## Features
 
 - **File and folder sharing** – create unguessable links directly from the file list, with optional PIN protection and automatic expiry.
-- **Private QR sharing** – every link gets an in-browser QR graphic without sending the URL to an external QR service.
+- **Private QR sharing** – every share link gets a scannable QR code PNG generated on the server (no external QR services).
 - **Folder downloads** – shared folders are streamed as compressed `.tar.gz` archives; files retain their original names.
 
 - 🚀 Drag and drop file uploads
@@ -258,6 +271,7 @@ When enabled, this feature provides:
 
 - **File Listing**: Displays all uploaded files and folders in a hierarchical structure
 - **Download**: Direct download links for individual files
+- **Share**: Create expiring links for files and folders, with optional PIN protection and QR codes
 - **Delete**: Ability to delete files and entire folders (including all contents)
 - **Statistics**: Shows total number of files and total storage used
 - **Refresh**: Manual refresh button to update the file list
