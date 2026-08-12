@@ -67,6 +67,9 @@ app.use((req, res, next) => {
     '/manifest.json',
     '/asset-manifest.json',
     '/toastify',
+    '/share/',
+    '/share.html',
+    '/api/shares/',
   ];
 
   // Check if the current path matches any of the public paths
@@ -84,6 +87,7 @@ app.use((req, res, next) => {
 const { router: uploadRouter } = require('./routes/upload');
 const fileRoutes = require('./routes/files');
 const authRoutes = require('./routes/auth');
+const shareRoutes = require('./routes/shares');
 
 // Use routes with appropriate middleware
 // Apply strict rate limiting to PIN verification, but more permissive to status checks
@@ -92,6 +96,21 @@ app.use('/api/auth/logout', pinStatusLimiter);
 app.use('/api/auth', pinVerifyLimiter, authRoutes);
 app.use('/api/upload', requirePin(config.pin), initUploadLimiter, uploadRouter);
 app.use('/api/files', requirePin(config.pin), downloadLimiter, fileRoutes);
+// Share creation is mounted on the protected file API; token access is public and
+// performs its own optional PIN check.
+app.use('/api/files/share', requirePin(config.pin), shareRoutes);
+app.use('/api/shares', (req, res, next) => {
+  if (req.method === 'POST' && !req.path.endsWith('/auth')) {
+    return requirePin(config.pin)(req, res, next);
+  }
+  next();
+}, downloadLimiter, shareRoutes);
+
+app.get('/share/:token', (req, res) => {
+  let html = fs.readFileSync(path.join(__dirname, '../public', 'share.html'), 'utf8');
+  html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle).replace('{{SHARE_TOKEN}}', JSON.stringify(req.params.token));
+  res.send(html);
+});
 
 // Root route
 app.get('/', (req, res) => {
@@ -99,7 +118,7 @@ app.get('/', (req, res) => {
   if (config.pin && (!req.cookies?.DUMBDROP_PIN || !safeCompare(req.cookies.DUMBDROP_PIN, config.pin))) {
     return res.redirect('/login.html');
   }
-  
+
   let html = fs.readFileSync(path.join(__dirname, '../public', 'index.html'), 'utf8');
   html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
   html = html.replace('{{AUTO_UPLOAD}}', config.autoUpload.toString());
@@ -115,7 +134,7 @@ app.get('/login.html', (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.set('Pragma', 'no-cache');
   res.set('Expires', '0');
-  
+
   let html = fs.readFileSync(path.join(__dirname, '../public', 'login.html'), 'utf8');
   html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
   html = injectDemoBanner(html);
@@ -127,7 +146,7 @@ app.use((req, res, next) => {
   if (!req.path.endsWith('.html')) {
     return next();
   }
-  
+
   try {
     const filePath = path.join(__dirname, '../public', req.path);
     let html = fs.readFileSync(filePath, 'utf8');
@@ -156,9 +175,9 @@ app.use('/toastify', express.static(path.join(__dirname, '../node_modules/toasti
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   logger.error(`Unhandled error: ${err.message}`);
-  res.status(500).json({ 
-    message: 'Internal server error', 
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined 
+  res.status(500).json({
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
@@ -174,7 +193,7 @@ async function initialize() {
   try {
     // Validate configuration
     validateConfig();
-    
+
     // Ensure upload directory exists and is writable
     await ensureDirectoryExists(config.uploadDir);
 
@@ -196,7 +215,7 @@ async function initialize() {
         throw new Error(`Failed to access or create metadata directory: ${METADATA_DIR}`);
     }
     // --- End added section ---
-    
+
     // Log configuration
     logger.info(`Maximum file size set to: ${config.maxFileSize / (1024 * 1024)}MB`);
     if (config.pin) {
@@ -206,7 +225,7 @@ async function initialize() {
     if (config.appriseUrl) {
       logger.info('Apprise notifications enabled');
     }
-    
+
     // After initializing demo middleware
     if (process.env.DEMO_MODE === 'true') {
         logger.info('[DEMO] Running in demo mode - uploads will not be saved');
@@ -221,7 +240,7 @@ async function initialize() {
             logger.error(`[DEMO] Failed to clear upload directory: ${err.message}`);
         }
     }
-    
+
     return app;
   } catch (err) {
     logger.error(`Initialization failed: ${err.message}`);
@@ -229,4 +248,4 @@ async function initialize() {
   }
 }
 
-module.exports = { app, initialize, config }; 
+module.exports = { app, initialize, config };

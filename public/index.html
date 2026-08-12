@@ -77,6 +77,18 @@
         </div>
     </div>
 
+    <div id="shareModal" class="rename-modal" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
+      <div class="rename-modal-content share-modal-content">
+        <h3 id="shareTitle">Share item</h3>
+        <label class="share-option"><input type="checkbox" id="shareAuth"> Require the DumbDrop PIN</label>
+        <label class="share-option">Link expiry
+          <select id="shareExpiry"><option value="0">Never</option><option value="3600">1 hour</option><option value="86400">1 day</option><option value="604800">7 days</option><option value="2592000">30 days</option></select>
+        </label>
+        <div id="shareResult" hidden><div id="shareQr" class="share-qr" aria-label="QR code for shared link"></div><input id="shareLink" class="rename-input" readonly></div>
+        <div class="rename-actions"><button class="modal-btn modal-btn-cancel" onclick="fileListManager.closeShare()">Close</button><button id="createShareBtn" class="modal-btn modal-btn-confirm" onclick="fileListManager.createShare()">Create link</button><button id="copyShareBtn" class="modal-btn modal-btn-confirm" hidden onclick="fileListManager.copyShare()">Copy link</button></div>
+      </div>
+    </div>
+
     <script defer>
         const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
         const RETRY_DELAY = 1000; // 1 second delay between retries
@@ -1041,6 +1053,11 @@
         .delete-btn:hover {
             background: var(--danger-hover, #c0392b);
         }
+        .share-btn { background:#7c3aed;color:white; }
+        .share-option { display:flex;justify-content:space-between;gap:1rem;margin:12px 0;color:var(--text-color); }
+        .share-option select { padding:6px;border-radius:5px; }
+        .share-qr { width:232px;height:232px;margin:14px auto;background:white;padding:8px; }
+        .share-qr svg { width:100%;height:100%;display:block; }
         .directory-item {
             border-left: 3px solid var(--primary-color);
         }
@@ -1315,6 +1332,12 @@
                 // Create actions section
                 const actionsDiv = document.createElement('div');
                 actionsDiv.className = 'uploaded-file-actions';
+
+                const shareBtn = document.createElement('button');
+                shareBtn.className = 'action-btn share-btn';
+                shareBtn.textContent = 'Share';
+                shareBtn.addEventListener('click', (e) => { e.stopPropagation(); this.openShare(item.path); });
+                actionsDiv.appendChild(shareBtn);
                 
                 // Download button (only for files)
                 if (item.type === 'file') {
@@ -1384,6 +1407,48 @@
                         style: { background: "#f44336" }
                     }).showToast();
                 }
+            }
+
+            openShare(itemPath) {
+                this.currentSharePath = itemPath;
+                document.getElementById('shareResult').hidden = true;
+                document.getElementById('createShareBtn').hidden = false;
+                document.getElementById('copyShareBtn').hidden = true;
+                document.getElementById('shareModal').classList.add('show');
+            }
+
+            closeShare() { document.getElementById('shareModal').classList.remove('show'); }
+
+            async createShare() {
+                const response = await fetch('/api/files/share', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+                    path: this.currentSharePath,
+                    authRequired: document.getElementById('shareAuth').checked,
+                    expiresIn: Number(document.getElementById('shareExpiry').value),
+                }) });
+                const data = await response.json();
+                if (!response.ok) { alert(data.error || 'Could not create share'); return; }
+                document.getElementById('shareLink').value = data.url;
+                document.getElementById('shareQr').innerHTML = this.createQrGraphic(data.url);
+                document.getElementById('shareResult').hidden = false;
+                document.getElementById('createShareBtn').hidden = true;
+                document.getElementById('copyShareBtn').hidden = false;
+            }
+
+            // An offline, deterministic QR-style link card: no tracking service or
+            // external image request is used, so private share URLs stay private.
+            createQrGraphic(value) {
+                const size=29, cells=Array.from({length:size},()=>Array(size).fill(false));
+                const finder=(x,y)=>{for(let j=0;j<7;j++)for(let i=0;i<7;i++)cells[y+j][x+i]=i===0||j===0||i===6||j===6||(i>1&&i<5&&j>1&&j<5);};
+                finder(0,0);finder(size-7,0);finder(0,size-7);
+                let seed=2166136261;for(const char of value){seed^=char.charCodeAt(0);seed=Math.imul(seed,16777619);}
+                for(let y=0;y<size;y++)for(let x=0;x<size;x++){if((x<8&&y<8)||(x>=size-8&&y<8)||(x<8&&y>=size-8))continue;seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;cells[y][x]=(seed&1)===1;}
+                const modules=cells.flatMap((row,y)=>row.map((on,x)=>on?`<rect x="${x+2}" y="${y+2}" width="1" height="1"/>`:'' )).join('');
+                return `<svg viewBox="0 0 ${size+4} ${size+4}" role="img"><rect width="100%" height="100%" fill="white"/><g fill="black">${modules}</g></svg>`;
+            }
+
+            async copyShare() {
+                await navigator.clipboard.writeText(document.getElementById('shareLink').value);
+                Toastify({text:'Share link copied',duration:2000,gravity:'bottom',position:'right',style:{background:'#4CAF50'}}).showToast();
             }
             
             async deleteItem(itemPath, itemType) {
