@@ -1,4 +1,4 @@
-# DumbDrop
+# DumbDrop+
 
 A stupid simple file upload application that provides a clean, modern interface for dragging and dropping files. Built with Node.js and vanilla JavaScript.
 
