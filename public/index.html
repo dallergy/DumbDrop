@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{SITE_TITLE}} - Simple File Upload</title>
+    <title>{{SITE_TITLE}} - Drop. Share. Done.</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="toastify/toastify.css">
     <script src="toastify/toastify.js"></script>
@@ -11,24 +11,31 @@
     <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
 </head>
 <body>
-    <div class="container">
-        <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">
-            <svg xmlns="http://www.w3.org/2000/svg" class="theme-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <!-- Moon icon (shown in light mode) -->
-                <path class="moon" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                <!-- Sun icon (shown in dark mode) -->
-                <circle class="sun" cx="12" cy="12" r="5" style="display:none"/>
-                <line class="sun" x1="12" y1="1" x2="12" y2="3" style="display:none"/>
-                <line class="sun" x1="12" y1="21" x2="12" y2="23" style="display:none"/>
-                <line class="sun" x1="4.22" y1="4.22" x2="5.64" y2="5.64" style="display:none"/>
-                <line class="sun" x1="18.36" y1="18.36" x2="19.78" y2="19.78" style="display:none"/>
-                <line class="sun" x1="1" y1="12" x2="3" y2="12" style="display:none"/>
-                <line class="sun" x1="21" y1="12" x2="23" y2="12" style="display:none"/>
-                <line class="sun" x1="4.22" y1="19.78" x2="5.64" y2="18.36" style="display:none"/>
-                <line class="sun" x1="18.36" y1="5.64" x2="19.78" y2="4.22" style="display:none"/>
-            </svg>
-        </button>
-        <h1>{{SITE_TITLE}}</h1>
+    <div class="container app-shell">
+        <header class="app-header">
+            <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">
+                <svg xmlns="http://www.w3.org/2000/svg" class="theme-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path class="moon" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    <circle class="sun" cx="12" cy="12" r="5" style="display:none"/>
+                    <line class="sun" x1="12" y1="1" x2="12" y2="3" style="display:none"/>
+                    <line class="sun" x1="12" y1="21" x2="12" y2="23" style="display:none"/>
+                    <line class="sun" x1="4.22" y1="4.22" x2="5.64" y2="5.64" style="display:none"/>
+                    <line class="sun" x1="18.36" y1="18.36" x2="19.78" y2="19.78" style="display:none"/>
+                    <line class="sun" x1="1" y1="12" x2="3" y2="12" style="display:none"/>
+                    <line class="sun" x1="21" y1="12" x2="23" y2="12" style="display:none"/>
+                    <line class="sun" x1="4.22" y1="19.78" x2="5.64" y2="18.36" style="display:none"/>
+                    <line class="sun" x1="18.36" y1="5.64" x2="19.78" y2="4.22" style="display:none"/>
+                </svg>
+            </button>
+            <div class="brand-lockup">
+                <div class="brand-row">
+                    <span class="brand-badge">Plus</span>
+                    <h1>{{SITE_TITLE}}</h1>
+                </div>
+                <p class="brand-tagline">Drop files. Share links. Scan QR codes.</p>
+            </div>
+        </header>
+
         <div class="upload-container" id="dropZone">
             <div class="upload-content">
                 <svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -50,17 +57,37 @@
         <button id="uploadButton" class="upload-button" style="display: none;">Upload Files</button>
         
         <!-- File listing section (controlled by SHOW_FILE_LIST environment variable) -->
-        <div id="uploadedFilesList" class="uploaded-files-section" style="display: none;">
-            <div class="uploaded-files-header">
-                <h2>Uploaded Files</h2>
-                <div class="uploaded-files-stats">
-                    <span id="totalFiles">0 files</span> • 
-                    <span id="totalSize">0 B</span>
-                    <button id="refreshFilesBtn" class="refresh-btn">🔄 Refresh</button>
+        <div id="libraryPanel" class="library-panel" style="display: none;">
+            <div class="library-tabs" role="tablist">
+                <button id="filesTab" class="library-tab active" type="button" role="tab" aria-selected="true">Files</button>
+                <button id="sharesTab" class="library-tab" type="button" role="tab" aria-selected="false">Share Links</button>
+            </div>
+
+            <div id="uploadedFilesList" class="uploaded-files-section library-pane active">
+                <div class="uploaded-files-header">
+                    <h2>Your Files</h2>
+                    <div class="uploaded-files-stats">
+                        <span id="totalFiles">0 files</span> •
+                        <span id="totalSize">0 B</span>
+                        <button id="refreshFilesBtn" class="refresh-btn" type="button">Refresh</button>
+                    </div>
+                </div>
+                <div id="uploadedFilesContent" class="uploaded-files-content">
+                    <div class="loading-message">Loading files...</div>
                 </div>
             </div>
-            <div id="uploadedFilesContent" class="uploaded-files-content">
-                <div class="loading-message">Loading files...</div>
+
+            <div id="shareLinksSection" class="uploaded-files-section library-pane">
+                <div class="uploaded-files-header">
+                    <h2>Share Links</h2>
+                    <div class="uploaded-files-stats">
+                        <span id="totalShares">0 links</span>
+                        <button id="refreshSharesBtn" class="refresh-btn" type="button">Refresh</button>
+                    </div>
+                </div>
+                <div id="shareLinksContent" class="uploaded-files-content">
+                    <div class="loading-message">Loading share links...</div>
+                </div>
             </div>
         </div>
     </div>
@@ -1096,10 +1123,97 @@
             border-left: 3px solid var(--primary-color);
         }
         .directory-children {
-            margin-left: 20px;
+            margin-left: 12px;
             border-left: 1px solid var(--border-color);
-            padding-left: 10px;
-            margin-top: 5px;
+            padding-left: 8px;
+            margin-top: 4px;
+        }
+        .directory-children.collapsed {
+            display: none;
+        }
+        .folder-toggle {
+            width: 1.5rem;
+            height: 1.5rem;
+            border: none;
+            background: transparent;
+            color: var(--text-color);
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: transform 0.2s ease;
+        }
+        .folder-toggle.expanded {
+            transform: rotate(90deg);
+        }
+        .folder-toggle-spacer {
+            width: 1.5rem;
+            flex-shrink: 0;
+        }
+        .uploaded-file-info {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.35rem;
+        }
+        .library-panel {
+            margin-top: 30px;
+        }
+        .library-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .library-tab {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            background: var(--container-bg);
+            color: var(--text-color);
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .library-tab.active {
+            background: linear-gradient(135deg, #7c3aed, #2563eb);
+            color: white;
+            border-color: transparent;
+        }
+        .library-pane {
+            display: none;
+        }
+        .library-pane.active {
+            display: block;
+        }
+        .share-link-card {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            margin-bottom: 0.75rem;
+            background: var(--bg-color);
+        }
+        .share-link-card.expired {
+            opacity: 0.65;
+        }
+        .share-link-title {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        .share-link-subtitle,
+        .share-link-url {
+            color: var(--text-color-secondary, #6b7280);
+            font-size: 0.9rem;
+            word-break: break-all;
+        }
+        .share-link-url {
+            display: block;
+            margin-top: 0.35rem;
+        }
+        .share-link-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            align-content: flex-start;
         }
         .loading-message, .error-message {
             text-align: center;
@@ -1247,6 +1361,7 @@
         // File listing functionality
         class FileListManager {
             constructor() {
+                this.libraryPanel = document.getElementById('libraryPanel');
                 this.uploadedFilesList = document.getElementById('uploadedFilesList');
                 this.uploadedFilesContent = document.getElementById('uploadedFilesContent');
                 this.totalFilesSpan = document.getElementById('totalFiles');
@@ -1255,6 +1370,7 @@
                 this.renameModal = document.getElementById('renameModal');
                 this.renameInput = document.getElementById('renameInput');
                 this.currentRenameData = null;
+                this.folderState = new Map();
                 
                 if (SHOW_FILE_LIST) {
                     this.init();
@@ -1262,7 +1378,7 @@
             }
             
             init() {
-                this.uploadedFilesList.style.display = 'block';
+                this.libraryPanel.style.display = 'block';
                 this.refreshBtn.addEventListener('click', () => this.loadFiles());
                 this.setupModalEventListeners();
                 this.loadFiles();
@@ -1326,21 +1442,29 @@
             
             renderItems(items, container, level = 0) {
                 items.forEach(item => {
-                    const itemElement = this.createItemElement(item, level);
-                    container.appendChild(itemElement);
-                    
-                    if (item.type === 'directory' && item.children && item.children.length > 0) {
+                    const node = document.createElement('div');
+                    node.className = 'file-tree-node';
+
+                    const hasChildren = item.type === 'directory' && item.children && item.children.length > 0;
+                    const itemElement = this.createItemElement(item, level, hasChildren);
+                    node.appendChild(itemElement);
+
+                    if (hasChildren) {
                         const childrenContainer = document.createElement('div');
-                        childrenContainer.className = 'directory-children';
+                        const collapsed = this.folderState.get(item.path) ?? level > 0;
+                        childrenContainer.className = `directory-children${collapsed ? ' collapsed' : ''}`;
                         this.renderItems(item.children, childrenContainer, level + 1);
-                        container.appendChild(childrenContainer);
+                        node.appendChild(childrenContainer);
                     }
+
+                    container.appendChild(node);
                 });
             }
             
-            createItemElement(item, level) {
+            createItemElement(item, level, hasChildren = false) {
                 const itemDiv = document.createElement('div');
                 itemDiv.className = `uploaded-file-item ${item.type === 'directory' ? 'directory-item' : ''}`;
+                itemDiv.style.paddingLeft = `${Math.min(level * 14, 56)}px`;
                 
                 const icon = item.type === 'directory' ? '📁' : '📄';
                 const name = item.name;
@@ -1348,9 +1472,29 @@
                     ? `${item.formattedSize} • ${this.countFilesInDirectory(item)} files`
                     : `${item.formattedSize} • ${new Date(item.uploadDate).toLocaleDateString()}`;
                 
-                // Create info section
                 const infoDiv = document.createElement('div');
                 infoDiv.className = 'uploaded-file-info';
+
+                if (hasChildren) {
+                    const toggle = document.createElement('button');
+                    toggle.type = 'button';
+                    toggle.className = `folder-toggle${this.folderState.get(item.path) ?? level > 0 ? '' : ' expanded'}`;
+                    toggle.setAttribute('aria-label', `Toggle ${name}`);
+                    toggle.textContent = '▸';
+                    toggle.addEventListener('click', (event) => {
+                        event.stopPropagation();
+                        const children = itemDiv.parentElement.querySelector('.directory-children');
+                        if (!children) return;
+                        const collapsed = children.classList.toggle('collapsed');
+                        toggle.classList.toggle('expanded', !collapsed);
+                        this.folderState.set(item.path, collapsed);
+                    });
+                    infoDiv.appendChild(toggle);
+                } else if (item.type === 'directory') {
+                    const spacer = document.createElement('span');
+                    spacer.className = 'folder-toggle-spacer';
+                    infoDiv.appendChild(spacer);
+                }
                 
                 const nameDiv = document.createElement('div');
                 nameDiv.className = 'uploaded-file-name';
@@ -1489,6 +1633,9 @@
                     document.getElementById('createShareBtn').hidden = true;
                     document.getElementById('copyShareBtn').hidden = false;
                     document.getElementById('downloadQrBtn').hidden = false;
+                    if (typeof shareLinksManager !== 'undefined') {
+                        shareLinksManager.loadShares();
+                    }
                 } catch (error) {
                     Toastify({
                         text: error.message,
@@ -1652,9 +1799,155 @@
                 }
             }
         }
+
+        class ShareLinksManager {
+            constructor(fileListManager) {
+                this.fileListManager = fileListManager;
+                this.section = document.getElementById('shareLinksSection');
+                this.content = document.getElementById('shareLinksContent');
+                this.totalSharesSpan = document.getElementById('totalShares');
+                this.refreshBtn = document.getElementById('refreshSharesBtn');
+                this.filesTab = document.getElementById('filesTab');
+                this.sharesTab = document.getElementById('sharesTab');
+                this.filesPane = document.getElementById('uploadedFilesList');
+                this.sharesPane = this.section;
+
+                if (!SHOW_FILE_LIST) return;
+
+                this.refreshBtn.addEventListener('click', () => this.loadShares());
+                this.filesTab.addEventListener('click', () => this.showPane('files'));
+                this.sharesTab.addEventListener('click', () => this.showPane('shares'));
+                this.loadShares();
+            }
+
+            showPane(name) {
+                const filesActive = name === 'files';
+                this.filesTab.classList.toggle('active', filesActive);
+                this.sharesTab.classList.toggle('active', !filesActive);
+                this.filesTab.setAttribute('aria-selected', filesActive ? 'true' : 'false');
+                this.sharesTab.setAttribute('aria-selected', filesActive ? 'false' : 'true');
+                this.filesPane.classList.toggle('active', filesActive);
+                this.sharesPane.classList.toggle('active', !filesActive);
+            }
+
+            async loadShares() {
+                try {
+                    this.content.innerHTML = '<div class="loading-message">Loading share links...</div>';
+                    const response = await fetch('/api/files/shares/manage');
+                    if (!response.ok) throw new Error('Failed to load share links');
+                    const data = await response.json();
+                    this.renderShares(data.shares || []);
+                } catch (error) {
+                    this.content.innerHTML = `<div class="error-message">${escapeHtml(error.message)}</div>`;
+                }
+            }
+
+            renderShares(shares) {
+                this.totalSharesSpan.textContent = `${shares.length} link${shares.length === 1 ? '' : 's'}`;
+                if (!shares.length) {
+                    this.content.innerHTML = '<div class="empty-message">No share links yet. Share a file or folder from the Files tab.</div>';
+                    return;
+                }
+
+                this.content.innerHTML = '';
+                shares.forEach((share) => {
+                    const card = document.createElement('div');
+                    card.className = `share-link-card${share.expired ? ' expired' : ''}`;
+
+                    const meta = document.createElement('div');
+                    meta.className = 'share-link-meta';
+                    meta.innerHTML = `
+                        <div class="share-link-title">${share.type === 'directory' ? '📁' : '📄'} ${escapeHtml(share.name)}</div>
+                        <div class="share-link-subtitle">${share.type === 'directory' ? 'Folder' : 'File'} • ${share.expiresAt ? `Expires ${new Date(share.expiresAt).toLocaleString()}` : 'Never expires'}${share.authRequired ? ' • PIN protected' : ''}</div>
+                        <a class="share-link-url" href="${escapeHtml(share.url)}" target="_blank" rel="noopener">${escapeHtml(share.url)}</a>
+                    `;
+
+                    const actions = document.createElement('div');
+                    actions.className = 'share-link-actions';
+
+                    const copyBtn = document.createElement('button');
+                    copyBtn.type = 'button';
+                    copyBtn.className = 'action-btn download-btn';
+                    copyBtn.textContent = 'Copy';
+                    copyBtn.addEventListener('click', async () => {
+                        await navigator.clipboard.writeText(share.url);
+                        Toastify({ text: 'Link copied', duration: 2000, gravity: 'bottom', position: 'right', style: { background: '#4CAF50' } }).showToast();
+                    });
+
+                    const qrBtn = document.createElement('button');
+                    qrBtn.type = 'button';
+                    qrBtn.className = 'action-btn rename-btn';
+                    qrBtn.textContent = 'QR PNG';
+                    qrBtn.addEventListener('click', () => {
+                        const link = document.createElement('a');
+                        link.href = share.qrUrl;
+                        link.download = `dumbdrop-share-${share.token.slice(0, 8)}.png`;
+                        link.click();
+                    });
+
+                    const editBtn = document.createElement('button');
+                    editBtn.type = 'button';
+                    editBtn.className = 'action-btn share-btn';
+                    editBtn.textContent = 'Edit';
+                    editBtn.addEventListener('click', () => this.editShare(share));
+
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.type = 'button';
+                    deleteBtn.className = 'action-btn delete-btn';
+                    deleteBtn.textContent = 'Delete';
+                    deleteBtn.addEventListener('click', () => this.deleteShare(share));
+
+                    actions.append(copyBtn, qrBtn, editBtn, deleteBtn);
+                    card.append(meta, actions);
+                    this.content.appendChild(card);
+                });
+            }
+
+            async editShare(share) {
+                const authRequired = confirm(`Require PIN for "${share.name}"?\n\nOK = PIN required\nCancel = no PIN`);
+                const expiryChoice = prompt('Link expiry:\n0 = never\n3600 = 1 hour\n86400 = 1 day\n604800 = 7 days\n2592000 = 30 days', share.expiresAt ? '86400' : '0');
+                if (expiryChoice === null) return;
+
+                const response = await fetch(`/api/files/shares/${encodeURIComponent(share.token)}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        authRequired,
+                        expiresIn: Number(expiryChoice),
+                    }),
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    Toastify({ text: error.error || 'Update failed', duration: 3000, gravity: 'bottom', position: 'right', style: { background: '#f44336' } }).showToast();
+                    return;
+                }
+
+                Toastify({ text: 'Share link updated', duration: 2000, gravity: 'bottom', position: 'right', style: { background: '#4CAF50' } }).showToast();
+                this.loadShares();
+            }
+
+            async deleteShare(share) {
+                if (!confirm(`Delete share link for "${share.name}"?`)) return;
+
+                const response = await fetch(`/api/files/shares/${encodeURIComponent(share.token)}`, {
+                    method: 'DELETE',
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    Toastify({ text: error.error || 'Delete failed', duration: 3000, gravity: 'bottom', position: 'right', style: { background: '#f44336' } }).showToast();
+                    return;
+                }
+
+                Toastify({ text: 'Share link deleted', duration: 2000, gravity: 'bottom', position: 'right', style: { background: '#4CAF50' } }).showToast();
+                this.loadShares();
+            }
+        }
         
         // Initialize file list manager
         const fileListManager = new FileListManager();
+        const shareLinksManager = new ShareLinksManager(fileListManager);
 
         // Theme management
         function setTheme(theme) {

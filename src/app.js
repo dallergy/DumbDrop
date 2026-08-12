@@ -87,7 +87,7 @@ app.use((req, res, next) => {
 const { router: uploadRouter } = require('./routes/upload');
 const fileRoutes = require('./routes/files');
 const authRoutes = require('./routes/auth');
-const shareRoutes = require('./routes/shares');
+const { router: shareRoutes, cleanupExpiredShares } = require('./routes/shares');
 
 // Use routes with appropriate middleware
 // Apply strict rate limiting to PIN verification, but more permissive to status checks
@@ -95,10 +95,9 @@ app.use('/api/auth/pin-required', pinStatusLimiter);
 app.use('/api/auth/logout', pinStatusLimiter);
 app.use('/api/auth', pinVerifyLimiter, authRoutes);
 app.use('/api/upload', requirePin(config.pin), initUploadLimiter, uploadRouter);
-app.use('/api/files', requirePin(config.pin), downloadLimiter, fileRoutes);
-// Share creation is mounted on the protected file API; token access is public and
-// performs its own optional PIN check.
 app.use('/api/files/share', requirePin(config.pin), shareRoutes);
+app.use('/api/files/shares', requirePin(config.pin), shareRoutes);
+app.use('/api/files', requirePin(config.pin), downloadLimiter, fileRoutes);
 app.use('/api/shares', (req, res, next) => {
   if (req.method === 'POST' && !req.path.endsWith('/auth')) {
     return requirePin(config.pin)(req, res, next);

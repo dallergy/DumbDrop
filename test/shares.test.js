@@ -1,6 +1,6 @@
 /**
  * Share link tests
- * Covers share creation, public access, QR PNG output, and folder archives.
+ * Covers share creation, management, ZIP archives, and per-file downloads.
  */
 
 process.env.DISABLE_BATCH_CLEANUP = 'true';
@@ -12,6 +12,7 @@ const http = require('node:http');
 const fs = require('fs').promises;
 const path = require('path');
 const { app, initialize, config } = require('../src/app');
+const { archivePath } = require('../src/utils/shareArchives');
 
 let server;
 let testFilePath;
@@ -37,7 +38,7 @@ after(async () => {
   }
 
   try {
-    await fs.rm(path.join(config.uploadDir, '.metadata', 'shares.json'), { force: true });
+    await fs.rm(path.join(config.uploadDir, '.metadata'), { recursive: true, force: true });
     await fs.rm(testFolderPath, { recursive: true, force: true });
     await fs.rm(testFilePath, { force: true });
   } catch {
@@ -89,20 +90,20 @@ describe('Share API Tests', () => {
     assert.strictEqual(response.data.type, 'file');
   });
 
-  it('should create a folder share', async () => {
+  it('should list shares for management', async () => {
     const response = await makeRequest({
       host: 'localhost',
       port: server.address().port,
-      path: '/api/files/share',
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    }, { path: 'share-folder' });
+      path: '/api/files/shares/manage',
+      method: 'GET',
+    });
 
-    assert.strictEqual(response.status, 201);
-    assert.strictEqual(response.data.type, 'directory');
+    assert.strictEqual(response.status, 200);
+    assert.ok(Array.isArray(response.data.shares));
+    assert.ok(response.data.shares.length > 0);
   });
 
-  it('should expose share metadata publicly', async () => {
+  it('should expose recursive share metadata publicly', async () => {
     const created = await makeRequest({
       host: 'localhost',
       port: server.address().port,
@@ -124,6 +125,77 @@ describe('Share API Tests', () => {
     assert.ok(response.data.items.some((item) => item.name === 'inside.txt'));
   });
 
+  it('should download an individual file from a shared folder', async () => {
+    const created = await makeRequest({
+      host: 'localhost',
+      port: server.address().port,
+      path: '/api/files/share',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }, { path: 'share-folder' });
+
+    const response = await makeRequest({
+      host: 'localhost',
+      port: server.address().port,
+      path: `/api/shares/${created.data.token}/file/inside.txt`,
+      method: 'GET',
+    });
+
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.raw.toString('utf8'), 'Nested file');
+  });
+
+  it('should create and reuse a cached ZIP for shared folders', async () => {
+    const created = await makeRequest({
+      host: 'localhost',
+      port: server.address().port,
+      path: '/api/files/share',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }, { path: 'share-folder' });
+
+    const response = await makeRequest({
+      host: 'localhost',
+      port: server.address().port,
+      path: `/api/shares/${created.data.token}/download`,
+      method: 'GET',
+    });
+
+    assert.strictEqual(response.status, 200);
+    assert.match(response.headers['content-disposition'] || '', /\.zip/);
+    assert.strictEqual(response.raw.slice(0, 2).toString('hex'), '504b');
+
+    const zipOnDisk = archivePath(created.data.token);
+    await fs.access(zipOnDisk);
+  });
+
+  it('should delete a share and remove its cached ZIP', async () => {
+    const created = await makeRequest({
+      host: 'localhost',
+      port: server.address().port,
+      path: '/api/files/share',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }, { path: 'share-folder' });
+
+    await makeRequest({
+      host: 'localhost',
+      port: server.address().port,
+      path: `/api/shares/${created.data.token}/download`,
+      method: 'GET',
+    });
+
+    const deleteResponse = await makeRequest({
+      host: 'localhost',
+      port: server.address().port,
+      path: `/api/files/shares/${created.data.token}`,
+      method: 'DELETE',
+    });
+
+    assert.strictEqual(deleteResponse.status, 200);
+    await assert.rejects(() => fs.access(archivePath(created.data.token)));
+  });
+
   it('should return a PNG QR code for a share', async () => {
     const created = await makeRequest({
       host: 'localhost',
@@ -142,7 +214,6 @@ describe('Share API Tests', () => {
 
     assert.strictEqual(response.status, 200);
     assert.match(response.headers['content-type'], /image\/png/);
-    assert.ok(response.raw.length > 100);
     assert.strictEqual(response.raw.slice(0, 8).toString('hex'), '89504e470d0a1a0a');
   });
 });

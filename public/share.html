@@ -31,7 +31,7 @@
           <a id="downloadQr" class="share-qr-download" href="#" download>Download QR PNG</a>
         </div>
 
-        <ul id="items" class="share-items"></ul>
+        <div id="items" class="share-tree"></div>
 
         <a id="download" class="upload-button share-download-btn" hidden>Download</a>
       </div>
@@ -42,6 +42,44 @@
 
   <script>
     const token = {{SHARE_TOKEN}};
+
+    function renderShareTree(items, container) {
+      if (!items || !items.length) {
+        return;
+      }
+
+      const list = document.createElement('ul');
+      list.className = 'share-items';
+
+      items.forEach((item) => {
+        const row = document.createElement('li');
+        row.className = 'share-tree-row';
+
+        const label = document.createElement('div');
+        label.className = 'share-tree-label';
+        label.textContent = `${item.type === 'directory' ? '📁' : '📄'} ${item.name}${item.type === 'file' ? ` · ${item.formattedSize}` : ''}`;
+        row.appendChild(label);
+
+        if (item.type === 'file') {
+          const link = document.createElement('a');
+          link.className = 'share-file-download';
+          link.href = `/api/shares/${encodeURIComponent(token)}/file/${item.path.split('/').map(encodeURIComponent).join('/')}`;
+          link.textContent = 'Download';
+          row.appendChild(link);
+        }
+
+        if (item.children && item.children.length) {
+          const childWrap = document.createElement('div');
+          childWrap.className = 'share-tree-children';
+          renderShareTree(item.children, childWrap);
+          row.appendChild(childWrap);
+        }
+
+        list.appendChild(row);
+      });
+
+      container.appendChild(list);
+    }
 
     async function load() {
       const response = await fetch(`/api/shares/${encodeURIComponent(token)}`);
@@ -71,16 +109,13 @@
       document.getElementById('content').hidden = !data.authenticated;
       document.getElementById('download').hidden = !data.authenticated;
       document.getElementById('download').href = `/api/shares/${encodeURIComponent(token)}/download`;
-      document.getElementById('download').textContent = isFolder ? 'Download folder (.tar.gz)' : 'Download file';
+      document.getElementById('download').textContent = isFolder ? 'Download folder (.zip)' : 'Download file';
 
-      document.getElementById('items').replaceChildren(
-        ...(data.items || []).map((item) => {
-          const li = document.createElement('li');
-          li.textContent = `${item.type === 'directory' ? '📁' : '📄'} ${item.name}` +
-            (item.type === 'file' ? ` · ${item.formattedSize}` : '');
-          return li;
-        })
-      );
+      const itemsRoot = document.getElementById('items');
+      itemsRoot.replaceChildren();
+      if (data.items) {
+        renderShareTree(data.items, itemsRoot);
+      }
     }
 
     document.getElementById('auth').addEventListener('submit', async (event) => {

@@ -8,6 +8,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const logger = require('./logger');
 const { config } = require('../config');
+const { cleanupExpiredShares } = require('../routes/shares');
 
 const METADATA_DIR = path.join(config.uploadDir, '.metadata');
 const UPLOAD_TIMEOUT = config.uploadTimeout || 30 * 60 * 1000; // Use a config or default (e.g., 30 mins)
@@ -233,6 +234,7 @@ async function cleanupIncompleteMetadataUploads() {
 
   // Also run empty folder cleanup
   await cleanupEmptyFolders(config.uploadDir);
+  await cleanupExpiredShares();
 }
 
 // Schedule the new cleanup function
