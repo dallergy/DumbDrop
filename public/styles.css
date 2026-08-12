@@ -829,6 +829,11 @@ button:disabled {
     min-width: 0;
 }
 
+.uploaded-file-text {
+    min-width: 0;
+    flex: 1;
+}
+
 .uploaded-file-name {
     font-weight: 600;
     color: var(--text-color);

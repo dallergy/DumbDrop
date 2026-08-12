@@ -1208,9 +1208,12 @@
                 const detailsDiv = document.createElement('div');
                 detailsDiv.className = 'uploaded-file-details';
                 detailsDiv.textContent = details;
-                
-                infoDiv.appendChild(nameDiv);
-                infoDiv.appendChild(detailsDiv);
+
+                const textDiv = document.createElement('div');
+                textDiv.className = 'uploaded-file-text';
+                textDiv.appendChild(nameDiv);
+                textDiv.appendChild(detailsDiv);
+                infoDiv.appendChild(textDiv);
                 
                 // Create actions section
                 const actionsDiv = document.createElement('div');
