@@ -1,10 +1,6 @@
 services:
     dumbdrop:
-        build:
-            context: .
-            dockerfile: Dockerfile
-            target: production
-        # image: dumbwareio/dumbdrop:latest
+        image: YOUR_DOCKERHUB_USER/dumbdrop:latest
         container_name: dumbdrop
         restart: unless-stopped
         ports:

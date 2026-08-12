@@ -79,12 +79,82 @@ docker compose up -d
 
 Use the ready-made stack in [`portainer-stack.yml`](portainer-stack.yml):
 
-1. In Portainer: **Stacks → Add stack → Web editor**
-2. Paste the contents of `portainer-stack.yml`
-3. Set `BASE_URL` to the URL you use to open DumbDrop (required for share links and QR codes)
-4. Deploy
+1. Publish your image first (see **Publish your Docker image** below)
+2. Replace `YOUR_DOCKERHUB_USER` in the stack file with your Docker Hub username
+3. In Portainer: **Stacks → Add stack → Web editor**
+4. Paste the contents of `portainer-stack.yml`
+5. Set `BASE_URL` to the URL you use to open DumbDrop
+6. Deploy
 
-The stack builds from this repository and enables `SHOW_FILE_LIST=true` so the Share button appears on every file and folder.
+### Publish your Docker image
+
+Portainer and most compose setups need a published image (`image: you/dumbdrop:latest`), not a local `build:` block.
+
+#### One-time: Docker Hub account
+
+1. Create a free account at [hub.docker.com](https://hub.docker.com)
+2. Create a repository named `dumbdrop` (public is fine)
+
+#### Option A — Build and push from your PC (fastest)
+
+On any machine with Docker installed, in your project folder:
+
+```bash
+# Log in to Docker Hub
+docker login
+
+# Build the production image (use your Docker Hub username)
+docker build --target production -t YOUR_DOCKERHUB_USER/dumbdrop:latest .
+
+# Push it
+docker push YOUR_DOCKERHUB_USER/dumbdrop:latest
+```
+
+Example if your username is `dallergy`:
+
+```bash
+docker build --target production -t dallergy/dumbdrop:latest .
+docker push dallergy/dumbdrop:latest
+```
+
+Then in Portainer / compose:
+
+```yaml
+image: dallergy/dumbdrop:latest
+```
+
+After you change code, rebuild and push again — Portainer will pull the new image on stack update (enable **Pull latest image** / recreate container).
+
+#### Option B — Auto-publish with GitHub Actions
+
+The repo already has `.github/workflows/docker-publish.yml`. To publish **your** image on every push to `main`:
+
+1. GitHub repo → **Settings → Secrets and variables → Actions**
+2. Add secrets:
+   - `DOCKER_USERNAME` = your Docker Hub username
+   - `DOCKER_PASSWORD` = a [Docker Hub access token](https://hub.docker.com/settings/security)
+3. Edit `.github/workflows/docker-publish.yml` and change the image name:
+
+```yaml
+images: |
+  YOUR_DOCKERHUB_USER/dumbdrop
+```
+
+4. Merge your branch to `main` — GitHub builds and pushes `latest` automatically.
+
+#### Option C — GitHub Container Registry (no Docker Hub)
+
+```bash
+docker build --target production -t ghcr.io/YOUR_GITHUB_USER/dumbdrop:latest .
+echo $GITHUB_TOKEN | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin
+docker push ghcr.io/YOUR_GITHUB_USER/dumbdrop:latest
+```
+
+Compose image line:
+
+```yaml
+image: ghcr.io/YOUR_GITHUB_USER/dumbdrop:latest
+```
 
 ### Option 3: Running Locally (For Developers)
 

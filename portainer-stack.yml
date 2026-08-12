@@ -1,21 +1,14 @@
-# DumbDrop — Portainer stack (copy/paste ready)
+# DumbDrop — Portainer stack (image-based, copy/paste ready)
 #
-# How to use in Portainer:
-# 1. Stacks → Add stack → Web editor
-# 2. Paste this entire file
-# 3. Set BASE_URL to your public URL (required for share links + QR codes)
-# 4. Deploy
-#
-# Builds from this repository. For the published image instead, comment out
-# `build:` and uncomment `image: dumbwareio/dumbdrop:latest`.
+# 1. Publish your image first (see README "Publish your Docker image")
+# 2. Replace YOUR_DOCKERHUB_USER below with your Docker Hub username
+# 3. Portainer → Stacks → Web editor → paste this file
+# 4. Set BASE_URL to your public URL
+# 5. Deploy / Update stack
 
 services:
   dumbdrop:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: production
-    # image: dumbwareio/dumbdrop:latest
+    image: YOUR_DOCKERHUB_USER/dumbdrop:latest
     container_name: dumbdrop
     restart: unless-stopped
     ports:
@@ -26,15 +19,12 @@ services:
       UPLOAD_DIR: /app/uploads
       NODE_ENV: production
       PORT: 3000
-      # REQUIRED: set to the URL you use to open DumbDrop (no trailing slash is fine)
       BASE_URL: https://dumbdrop.example.com
       DUMBDROP_TITLE: DumbDrop
       DUMBDROP_PIN: ""
       MAX_FILE_SIZE: 1024
       AUTO_UPLOAD: "true"
-      # Enables file list + Share buttons in the UI
       SHOW_FILE_LIST: "true"
-      # Set to "true" only when behind a trusted reverse proxy (Traefik, NPM, etc.)
       TRUST_PROXY: "false"
 
 volumes:
