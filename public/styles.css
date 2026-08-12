@@ -359,3 +359,237 @@ button:disabled {
         font-size: 1.125rem;
     }
 }
+
+/* Share modal and public share page */
+.share-modal .share-modal-content {
+    max-width: 440px;
+    padding: 1.75rem;
+}
+
+.share-modal-header {
+    text-align: center;
+    margin-bottom: 1.25rem;
+}
+
+.share-modal-icon {
+    width: 3rem;
+    height: 3rem;
+    margin: 0 auto 0.75rem;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: rgba(124, 58, 237, 0.12);
+    font-size: 1.5rem;
+}
+
+.share-modal-subtitle {
+    color: var(--text-color-secondary, #6b7280);
+    font-size: 0.95rem;
+    margin-top: 0.35rem;
+    word-break: break-all;
+}
+
+.share-form {
+    display: grid;
+    gap: 0.85rem;
+    margin-bottom: 1rem;
+}
+
+.share-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-color);
+    color: var(--text-color);
+}
+
+.share-option select {
+    min-width: 7rem;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--container-bg);
+    color: var(--text-color);
+}
+
+.share-result {
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+.share-qr-wrap {
+    display: inline-flex;
+    padding: 0.75rem;
+    border-radius: 16px;
+    background: #fff;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+.share-qr-image {
+    display: block;
+    width: 220px;
+    height: 220px;
+}
+
+.share-link-label {
+    margin: 1rem 0 0.5rem;
+    color: var(--text-color-secondary, #6b7280);
+    font-size: 0.9rem;
+}
+
+.share-link-input {
+    margin-bottom: 0.75rem;
+}
+
+.share-result-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+.modal-btn-secondary {
+    background: var(--bg-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+}
+
+.modal-btn-secondary:hover {
+    background: var(--progress-bg);
+}
+
+.share-modal-actions {
+    margin-top: 0.5rem;
+}
+
+.share-page {
+    align-items: center;
+    padding: 2rem 1rem;
+}
+
+.share-shell {
+    width: 100%;
+    max-width: 720px;
+}
+
+.share-card {
+    padding: 2rem;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+    background: var(--container-bg);
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+    text-align: center;
+}
+
+.share-card-badge {
+    display: inline-block;
+    margin-bottom: 1rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    background: rgba(33, 150, 243, 0.12);
+    color: var(--primary-color);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.share-card-icon {
+    font-size: 3rem;
+    margin-bottom: 0.5rem;
+}
+
+.share-meta {
+    color: var(--text-color-secondary, #6b7280);
+    margin: 0.5rem 0 1.25rem;
+}
+
+.share-pin-form {
+    margin: 1rem 0;
+}
+
+.share-pin-label {
+    display: block;
+    margin-bottom: 0.75rem;
+    color: var(--text-color);
+    font-weight: 500;
+}
+
+.share-pin-row {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.share-pin-row input {
+    min-width: 180px;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-color);
+    color: var(--text-color);
+}
+
+.share-content {
+    margin-top: 1rem;
+}
+
+.share-qr-panel {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+}
+
+.share-qr-download {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.share-qr-download:hover {
+    text-decoration: underline;
+}
+
+.share-items {
+    margin: 0 0 1.25rem;
+    padding: 0;
+    list-style: none;
+    text-align: left;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.share-items li {
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.share-items li:last-child {
+    border-bottom: none;
+}
+
+.share-download-btn {
+    display: inline-block;
+    text-decoration: none;
+}
+
+.share-error {
+    min-height: 1.25rem;
+}
+
+.share-footer {
+    margin-top: 1rem;
+    text-align: center;
+    color: var(--text-color-secondary, #6b7280);
+    font-size: 0.85rem;
+}
