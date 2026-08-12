@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Shared item · {{SITE_TITLE}}</title><link rel="stylesheet" href="/styles.css">
+  <style>
+    .share-card{max-width:620px;margin:10vh auto;padding:2rem;background:var(--container-bg);border:1px solid var(--border-color);border-radius:16px;text-align:center}
+    .share-icon{font-size:3rem}.share-meta{color:var(--text-color-secondary);margin:.5rem}.share-items{text-align:left;margin:1.5rem 0;padding:0;list-style:none}.share-items li{padding:.65rem;border-bottom:1px solid var(--border-color)}
+    .pin-row{display:flex;gap:.5rem;justify-content:center;margin:1.25rem}.pin-row input{padding:.7rem;border:1px solid var(--border-color);border-radius:6px}.error-message{color:var(--danger-color)}
+  </style>
+</head><body><main class="share-card">
+  <div class="share-icon" id="icon">🔗</div><h1 id="name">Opening shared item…</h1><p class="share-meta" id="meta"></p>
+  <form id="auth" class="pin-row" hidden><input id="pin" type="password" inputmode="numeric" placeholder="Enter PIN" required autofocus><button>Unlock</button></form>
+  <p id="error" class="error-message"></p><ul id="items" class="share-items"></ul>
+  <a id="download" class="upload-button" hidden>Download</a>
+</main><script>
+const token={{SHARE_TOKEN}};
+async function load(){
+  const response=await fetch(`/api/shares/${encodeURIComponent(token)}`), data=await response.json();
+  if(!response.ok){document.getElementById('name').textContent='Share unavailable';document.getElementById('error').textContent=data.error;return;}
+  document.getElementById('name').textContent=data.name;document.getElementById('icon').textContent=data.type==='directory'?'📁':'📄';
+  document.getElementById('meta').textContent=`${data.type==='directory'?'Shared folder':'Shared file'} · ${data.formattedSize}${data.expiresAt?' · Expires '+new Date(data.expiresAt).toLocaleString():''}`;
+  document.getElementById('auth').hidden=data.authenticated;document.getElementById('download').hidden=!data.authenticated;
+  document.getElementById('download').href=`/api/shares/${encodeURIComponent(token)}/download`;
+  document.getElementById('download').textContent=data.type==='directory'?'Download folder (.tar.gz)':'Download file';
+  document.getElementById('items').replaceChildren(...(data.items||[]).map(item=>{const li=document.createElement('li');li.textContent=`${item.type==='directory'?'📁':'📄'} ${item.name}${item.type==='file'?' · '+item.formattedSize:''}`;return li;}));
+}
+document.getElementById('auth').addEventListener('submit',async event=>{event.preventDefault();const response=await fetch(`/api/shares/${encodeURIComponent(token)}/auth`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin:document.getElementById('pin').value})});if(response.ok){document.getElementById('error').textContent='';load();}else document.getElementById('error').textContent=(await response.json()).error;});load();
+</script></body></html>

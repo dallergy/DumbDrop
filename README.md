@@ -81,6 +81,10 @@ For local development setup, troubleshooting, and advanced usage, see the dedica
 
 ## Features
 
+- **File and folder sharing** – create unguessable links directly from the file list, with optional PIN protection and automatic expiry.
+- **Private QR sharing** – every link gets an in-browser QR graphic without sending the URL to an external QR service.
+- **Folder downloads** – shared folders are streamed as compressed `.tar.gz` archives; files retain their original names.
+
 - 🚀 Drag and drop file uploads
 - 📁 Multiple file selection
 - 🎨 Clean, responsive UI with Dark Mode
