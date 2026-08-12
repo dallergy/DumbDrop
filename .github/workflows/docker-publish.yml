@@ -38,7 +38,7 @@ jobs:
           # image name is dumbdrop, in the docker user's repo
           # this allows the push to work in forks
           images: |
-            name=dumbwareio/dumbdrop
+            name= dallergy/dumbdrop
           tags: |
             # Add :dev tag for pushes to the dev branch
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
