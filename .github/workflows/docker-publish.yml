@@ -31,14 +31,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-<<<<<<< HEAD
-          # image name is dumbdrop, in the docker user's repo
-          # this allows the push to work in forks
-          images: |
-            name= dallergy/dumbdrop
-=======
           images: ${{ secrets.DOCKER_USERNAME }}/dumbdrop
->>>>>>> cursor/sharing-qr-ui-portainer-b431
           tags: |
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
             type=raw,value=latest
