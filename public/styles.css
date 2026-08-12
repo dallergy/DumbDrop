@@ -1,29 +1,33 @@
 :root {
-    --bg-color: #f5f5f5;
-    --text-color: #333;
-    --container-bg: white;
-    --border-color: #ccc;
-    --highlight-color: #2196F3;
-    --highlight-hover: #1976D2;
-    --progress-bg: #f0f0f0;
-    --primary-color: #2196F3;
-    --secondary-color: #ccc;
-    --textarea-bg: rgba(255, 255, 255, 0.1);
-    --danger-color: #f44336;
+    --bg-color: #eef2ff;
+    --text-color: #0f172a;
+    --text-color-secondary: #64748b;
+    --container-bg: #ffffff;
+    --border-color: #dbe3f0;
+    --highlight-color: #7c3aed;
+    --highlight-hover: #6d28d9;
+    --progress-bg: #f1f5f9;
+    --primary-color: #2563eb;
+    --secondary-color: #cbd5e1;
+    --textarea-bg: rgba(255, 255, 255, 0.72);
+    --danger-color: #ef4444;
+    --accent-gradient: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
 }
 
 [data-theme="dark"] {
-    --bg-color: #1a1a1a;
-    --text-color: #fff;
-    --container-bg: #2d2d2d;
-    --border-color: #404040;
-    --highlight-color: #2196F3;
-    --highlight-hover: #1976D2;
-    --progress-bg: #404040;
-    --primary-color: #2196F3;
-    --secondary-color: #404040;
-    --textarea-bg: rgba(255, 255, 255, 0.05);
-    --danger-color: #f44336;
+    --bg-color: #0b1020;
+    --text-color: #f8fafc;
+    --text-color-secondary: #94a3b8;
+    --container-bg: #111827;
+    --border-color: #243044;
+    --highlight-color: #a78bfa;
+    --highlight-hover: #8b5cf6;
+    --progress-bg: #1f2937;
+    --primary-color: #60a5fa;
+    --secondary-color: #334155;
+    --textarea-bg: rgba(255, 255, 255, 0.04);
+    --danger-color: #f87171;
+    --accent-gradient: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
 }
 
 * {
@@ -35,26 +39,67 @@
 
 body {
     min-height: 100vh;
-    background: var(--bg-color);
+    background:
+        radial-gradient(circle at top left, rgba(124, 58, 237, 0.12), transparent 28%),
+        radial-gradient(circle at top right, rgba(37, 99, 235, 0.12), transparent 24%),
+        var(--bg-color);
     display: flex;
     justify-content: center;
-    padding-top: 2rem;
+    padding: 2rem 1rem 3rem;
     color: var(--text-color);
     transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-.container {
+.container,
+.app-shell {
     width: 100%;
-    max-width: 600px;
+    max-width: 760px;
     padding: 20px;
     text-align: center;
     position: relative;
 }
 
+.app-header {
+    position: relative;
+    margin-bottom: 1.5rem;
+    padding: 1.5rem 1rem 0.5rem;
+}
+
+.brand-lockup {
+    text-align: center;
+}
+
+.brand-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.brand-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+    background: var(--accent-gradient);
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.brand-tagline {
+    margin-top: 0.5rem;
+    color: var(--text-color-secondary);
+    font-size: 0.95rem;
+}
+
 .theme-toggle {
     position: absolute;
-    top: 20px;
-    right: 20px;
+    top: 0;
+    right: 0;
     background: none;
     border: none;
     cursor: pointer;
@@ -85,9 +130,10 @@ h1 {
 
 .upload-container {
     background: var(--container-bg);
-    border-radius: 10px;
+    border-radius: 18px;
     padding: 40px 20px;
-    border: 2px dashed var(--border-color);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
     cursor: pointer;
     transition: all 0.3s ease;
     margin-bottom: 20px;
@@ -572,6 +618,31 @@ button:disabled {
 .share-items li {
     padding: 0.8rem 1rem;
     border-bottom: 1px solid var(--border-color);
+}
+
+.share-tree-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.share-tree-children {
+    margin-top: 0.35rem;
+    margin-left: 1rem;
+    border-left: 1px solid var(--border-color);
+    padding-left: 0.75rem;
+}
+
+.share-file-download {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.share-file-download:hover {
+    text-decoration: underline;
 }
 
 .share-items li:last-child {

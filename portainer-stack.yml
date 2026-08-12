@@ -20,7 +20,7 @@ services:
       NODE_ENV: production
       PORT: 3000
       BASE_URL: https://dumbdrop.example.com
-      DUMBDROP_TITLE: DumbDrop
+      DUMBDROP_TITLE: DumbDrop Plus
       DUMBDROP_PIN: ""
       MAX_FILE_SIZE: 1024
       AUTO_UPLOAD: "true"
