@@ -28,6 +28,45 @@ export function formatRate(bytesPerSecond) {
   return `${formatFileSize(bytesPerSecond)}/s`;
 }
 
+/**
+ * Line speeds are sold in megabits; show both so users can compare with their plan.
+ */
+export function formatMbps(bytesPerSecond) {
+  const mbps = (bytesPerSecond * 8) / 1_000_000;
+  if (mbps >= 1000) return `${(mbps / 1000).toFixed(2)} Gbps`;
+  return `${mbps.toFixed(mbps >= 100 ? 0 : 1)} Mbps`;
+}
+
+export function formatDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '—';
+  if (seconds < 1) return '<1s';
+  const s = Math.round(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+/**
+ * Persisted user preferences (upload tuning, etc.) with safe fallbacks.
+ */
+export function readSetting(key, fallback) {
+  try {
+    const raw = localStorage.getItem(`dumbdrop:${key}`);
+    return raw === null ? fallback : JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+export function writeSetting(key, value) {
+  try {
+    localStorage.setItem(`dumbdrop:${key}`, JSON.stringify(value));
+  } catch { /* storage unavailable (private mode); keep in-memory value */ }
+}
+
 export function escapeHtml(text) {
   if (!text) return '';
   return String(text)
