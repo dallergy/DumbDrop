@@ -168,19 +168,18 @@ For local development setup, troubleshooting, and advanced usage, see the dedica
 - **Private QR sharing** – every share link gets a scannable QR code PNG generated on the server (no external QR services).
 - **Folder downloads** – shared folders are streamed as compressed `.tar.gz` archives; files retain their original names.
 
-- 🚀 Drag and drop file uploads
-- 📁 Multiple file selection
-- 🎨 Clean, responsive UI with Dark Mode
-- 📦 Docker support with easy configuration
-- 📂 Directory upload support (maintains structure)
+- 🚀 Drag and drop file uploads, clipboard paste, and mobile camera capture
+- ⚡ Unthrottled chunked uploads (8–16MB chunks, concurrent files — not capped at 1MB/s)
+- 📁 Multiple file and folder selection
+- 🎨 Clean 2026 UI (shadcn-inspired, light/dark/system)
+- 📦 Docker support with healthchecks and a non-root runtime user
 - 🔒 Optional PIN protection
 - 📱 Mobile-friendly interface
 - 🔔 Configurable notifications via Apprise
-- ⚡ Zero dependencies on client-side
-- 🛡️ Built-in security features
+- 🛡️ Built-in security features (CSP, rate limits, path checks)
 - 💾 Configurable file size limits
 - 🎯 File extension filtering
-- 📋 Optional file listing with download/delete functionality
+- 📋 Optional file listing with search, share, download, rename, and delete
 
 ## Configuration
 
@@ -411,11 +410,11 @@ Both {size} and {storage} use the same formatting rules based on APPRISE_SIZE_UN
 
 ### Stack
 
-- **Backend**: Node.js (>=20.0.0) with Express
-- **Frontend**: Vanilla JavaScript (ES6+)
-- **Container**: Docker with multi-stage builds
-- **Security**: Express security middleware
-- **Upload**: Chunked file handling via Multer
+- **Backend**: Node.js (>=20.0.0, image uses Node 24 Alpine) with Express
+- **Frontend**: Vanilla JavaScript modules
+- **Container**: Docker multi-stage build, non-root user, `/health` check
+- **Security**: Helmet CSP, rate limiting, httpOnly PIN cookies
+- **Upload**: Offset-based chunked writes (no 1MB-per-request cap)
 - **Notifications**: Apprise integration
 
 ### Dependencies

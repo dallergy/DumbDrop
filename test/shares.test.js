@@ -38,7 +38,6 @@ after(async () => {
   }
 
   try {
-    await fs.rm(path.join(config.uploadDir, '.metadata'), { recursive: true, force: true });
     await fs.rm(testFolderPath, { recursive: true, force: true });
     await fs.rm(testFilePath, { force: true });
   } catch {
@@ -197,6 +196,7 @@ describe('Share API Tests', () => {
   });
 
   it('should return a PNG QR code for a share', async () => {
+    await fs.writeFile(testFilePath, 'Share me');
     const created = await makeRequest({
       host: 'localhost',
       port: server.address().port,
@@ -204,6 +204,9 @@ describe('Share API Tests', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     }, { path: 'share-test.txt' });
+
+    assert.ok(created.status === 200 || created.status === 201);
+    assert.ok(created.data.token);
 
     const response = await makeRequest({
       host: 'localhost',

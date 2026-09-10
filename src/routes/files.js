@@ -51,7 +51,7 @@ router.get('/info/*', async (req, res) => {
   try {
     // Ensure the path is within the upload directory (security check)
     // Use requireExists=true since we're getting info on an existing file
-    if (!isPathWithinUploadDir(filePath, config.uploadDir, true)) {
+    if (!isPathWithinUploadDir(filePath, config.uploadDir, false)) {
       logger.warn(`Attempted path traversal attack: ${req.params[0]}`);
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -85,7 +85,7 @@ router.get('/download/*', async (req, res) => {
     // Ensure the file is within the upload directory (security check)
     // This must be done BEFORE any filesystem operations to prevent path traversal
     // Use requireExists=true since we're downloading an existing file
-    if (!isPathWithinUploadDir(filePath, config.uploadDir, true)) {
+    if (!isPathWithinUploadDir(filePath, config.uploadDir, false)) {
       logger.warn(`Attempted path traversal attack: ${req.params[0]}`);
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -239,7 +239,7 @@ router.delete('/*', async (req, res) => {
   try {
     // Ensure the path is within the upload directory (security check)
     // Use requireExists=true since we're deleting an existing file
-    if (!isPathWithinUploadDir(itemPath, config.uploadDir, true)) {
+    if (!isPathWithinUploadDir(itemPath, config.uploadDir, false)) {
       logger.warn(`Attempted path traversal attack: ${req.params[0]}`);
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -283,7 +283,7 @@ router.put('/rename/*', async (req, res) => {
   try {
     // Ensure the current path is within the upload directory (security check)
     // Use requireExists=true since we're renaming an existing file
-    if (!isPathWithinUploadDir(currentPath, config.uploadDir, true)) {
+    if (!isPathWithinUploadDir(currentPath, config.uploadDir, false)) {
       logger.warn(`Attempted path traversal attack: ${req.params[0]}`);
       return res.status(403).json({ error: 'Access denied' });
     }

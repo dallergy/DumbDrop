@@ -8,7 +8,8 @@ const { app, initialize, config } = require('./app');
 const logger = require('./utils/logger');
 const fs = require('fs');
 const { executeCleanup } = require('./utils/cleanup');
-const { generatePWAManifest } = require('./scripts/pwa-manifest-generator')
+const { generatePWAManifest } = require('./scripts/pwa-manifest-generator');
+const { closeAllFileHandles } = require('./routes/upload');
 
 // Track open connections
 const connections = new Set();
@@ -41,6 +42,12 @@ async function startServer() {
         }
       }
     });
+
+    // Do not cap long-running chunk requests; each chunk is its own request
+    server.requestTimeout = 0;
+    server.headersTimeout = 120000;
+    server.keepAliveTimeout = 65000;
+    server.timeout = 0;
 
     // Dynamically generate PWA manifest into public folder
     generatePWAManifest();
@@ -92,6 +99,7 @@ async function startServer() {
         logger.info('Server closed');
         
         // 4. Run cleanup tasks with a shorter timeout
+        await closeAllFileHandles();
         await executeCleanup(1000); // 1 second timeout for cleanup
         
         // Clear the force shutdown timer since we completed gracefully

@@ -48,23 +48,38 @@ const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 // }
 
 function getHelmetConfig() {
-  // const isSecure = BASE_URL.startsWith('https://');
-  
+  const frameAncestors = ["'self'"];
+
   return {
-    noSniff: true, // Prevent MIME type sniffing
-    frameguard: { action: 'deny' }, // Prevent clickjacking
-    crossOriginEmbedderPolicy: false, // Disable for local network access
-    crossOriginOpenerPolicy: false, // Disable to prevent warnings on HTTP
-    crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allow cross-origin for local network
-    referrerPolicy: { policy: 'no-referrer-when-downgrade' }, // Set referrer policy
-    ieNoOpen: true, // Prevent IE from executing downloads
-    // hsts: isSecure ? { maxAge: 31536000, includeSubDomains: true } : false, // Only enforce HTTPS if using HTTPS
-    // Disabled Helmet middlewares:
-    hsts: false,
-    contentSecurityPolicy: false, // Disable CSP for now
-    dnsPrefetchControl: true, // Disable DNS prefetching
-    permittedCrossDomainPolicies: false,
-    originAgentCluster: false,
+    noSniff: true,
+    frameguard: { action: 'sameorigin' },
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: false,
+    crossOriginResourcePolicy: { policy: 'same-origin' },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    ieNoOpen: true,
+    hsts: process.env.NODE_ENV === 'production' && BASE_URL.startsWith('https')
+      ? { maxAge: 31536000, includeSubDomains: true }
+      : false,
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors,
+        upgradeInsecureRequests: null,
+      },
+    },
+    dnsPrefetchControl: { allow: false },
+    permittedCrossDomainPolicies: { permittedPolicies: 'none' },
+    originAgentCluster: true,
     xssFilter: false,
   };
 }

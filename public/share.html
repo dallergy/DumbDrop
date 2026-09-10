@@ -4,140 +4,41 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Shared item · {{SITE_TITLE}}</title>
-  <link rel="stylesheet" href="/styles.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="icon" type="image/svg+xml" href="/assets/icon.svg">
+  <meta name="color-scheme" content="light dark">
+  <base href="{{BASE_URL}}">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+  <script type="application/json" id="app-config">{{APP_CONFIG}}</script>
+  <script type="module" src="js/share.js"></script>
 </head>
-<body class="share-page">
+<body class="share-page" data-share-token="{{SHARE_TOKEN}}">
   <main class="share-shell">
-    <section class="share-card" aria-live="polite">
-      <div class="share-card-badge" id="typeBadge">Shared item</div>
+    <section class="card share-card" aria-live="polite">
+      <div class="brand-badge" id="typeBadge">Shared item</div>
       <div class="share-card-icon" id="icon" aria-hidden="true">🔗</div>
       <h1 id="name">Opening shared item…</h1>
-      <p class="share-meta" id="meta"></p>
+      <p class="muted" id="meta"></p>
 
       <form id="auth" class="share-pin-form" hidden>
-        <label for="pin" class="share-pin-label">This link is PIN protected</label>
+        <label for="pin" class="muted">This link is PIN protected</label>
         <div class="share-pin-row">
-          <input id="pin" type="password" inputmode="numeric" placeholder="Enter PIN" required autofocus>
-          <button type="submit" class="upload-button">Unlock</button>
+          <input id="pin" class="input" type="password" inputmode="numeric" placeholder="Enter PIN" required autofocus>
+          <button type="submit" class="btn btn-primary">Unlock</button>
         </div>
       </form>
 
-      <p id="error" class="error-message share-error" role="alert"></p>
+      <p id="error" class="error-message" role="alert"></p>
 
       <div id="content" class="share-content" hidden>
         <div class="share-qr-panel">
           <img id="qrImage" class="share-qr-image" alt="QR code for this share link">
-          <a id="downloadQr" class="share-qr-download" href="#" download>Download QR PNG</a>
+          <a id="downloadQr" class="btn btn-ghost btn-sm" href="#" download>Download QR PNG</a>
         </div>
-
         <div id="items" class="share-tree"></div>
-
-        <a id="download" class="upload-button share-download-btn" hidden>Download</a>
+        <a id="download" class="btn btn-primary" hidden>Download</a>
       </div>
     </section>
-
-    <p class="share-footer">Powered by {{SITE_TITLE}}</p>
+    <p class="muted share-footer">Powered by {{SITE_TITLE}}</p>
   </main>
-
-  <script>
-    const token = {{SHARE_TOKEN}};
-
-    function renderShareTree(items, container) {
-      if (!items || !items.length) {
-        return;
-      }
-
-      const list = document.createElement('ul');
-      list.className = 'share-items';
-
-      items.forEach((item) => {
-        const row = document.createElement('li');
-        row.className = 'share-tree-row';
-
-        const label = document.createElement('div');
-        label.className = 'share-tree-label';
-        label.textContent = `${item.type === 'directory' ? '📁' : '📄'} ${item.name}${item.type === 'file' ? ` · ${item.formattedSize}` : ''}`;
-        row.appendChild(label);
-
-        if (item.type === 'file') {
-          const link = document.createElement('a');
-          link.className = 'share-file-download';
-          link.href = `/api/shares/${encodeURIComponent(token)}/file/${item.path.split('/').map(encodeURIComponent).join('/')}`;
-          link.textContent = 'Download';
-          row.appendChild(link);
-        }
-
-        if (item.children && item.children.length) {
-          const childWrap = document.createElement('div');
-          childWrap.className = 'share-tree-children';
-          renderShareTree(item.children, childWrap);
-          row.appendChild(childWrap);
-        }
-
-        list.appendChild(row);
-      });
-
-      container.appendChild(list);
-    }
-
-    async function load() {
-      const response = await fetch(`/api/shares/${encodeURIComponent(token)}`);
-      const data = await response.json();
-
-      if (!response.ok) {
-        document.getElementById('name').textContent = 'Share unavailable';
-        document.getElementById('error').textContent = data.error;
-        return;
-      }
-
-      const isFolder = data.type === 'directory';
-      document.getElementById('name').textContent = data.name;
-      document.getElementById('icon').textContent = isFolder ? '📁' : '📄';
-      document.getElementById('typeBadge').textContent = isFolder ? 'Shared folder' : 'Shared file';
-      document.getElementById('meta').textContent =
-        `${isFolder ? 'Folder' : 'File'} · ${data.formattedSize}` +
-        (data.expiresAt ? ` · Expires ${new Date(data.expiresAt).toLocaleString()}` : '');
-
-      const qrUrl = `/api/shares/${encodeURIComponent(token)}/qr.png`;
-      document.getElementById('qrImage').src = qrUrl;
-      const qrDownload = document.getElementById('downloadQr');
-      qrDownload.href = qrUrl;
-      qrDownload.download = `dumbdrop-share-${token.slice(0, 8)}.png`;
-
-      document.getElementById('auth').hidden = data.authenticated;
-      document.getElementById('content').hidden = !data.authenticated;
-      document.getElementById('download').hidden = !data.authenticated;
-      document.getElementById('download').href = `/api/shares/${encodeURIComponent(token)}/download`;
-      document.getElementById('download').textContent = isFolder ? 'Download folder (.zip)' : 'Download file';
-
-      const itemsRoot = document.getElementById('items');
-      itemsRoot.replaceChildren();
-      if (data.items) {
-        renderShareTree(data.items, itemsRoot);
-      }
-    }
-
-    document.getElementById('auth').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const response = await fetch(`/api/shares/${encodeURIComponent(token)}/auth`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: document.getElementById('pin').value }),
-      });
-
-      if (response.ok) {
-        document.getElementById('error').textContent = '';
-        load();
-        return;
-      }
-
-      document.getElementById('error').textContent = (await response.json()).error;
-    });
-
-    load();
-  </script>
 </body>
 </html>

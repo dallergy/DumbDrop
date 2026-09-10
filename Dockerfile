@@ -1,64 +1,55 @@
-# Base stage for shared configurations
-FROM node:22-alpine as base
+# syntax=docker/dockerfile:1
+# Node 24 is Active LTS as of 2026; Alpine keeps the image small.
 
-# Install python and create virtual environment with minimal dependencies
+FROM node:24-alpine AS base
+
 RUN apk add --no-cache python3 py3-pip && \
     python3 -m venv /opt/venv && \
     rm -rf /var/cache/apk/*
 
-# Activate virtual environment and install apprise
 RUN . /opt/venv/bin/activate && \
     pip install --no-cache-dir apprise && \
     find /opt/venv -type d -name "__pycache__" -exec rm -r {} +
 
-# Add virtual environment to PATH
 ENV PATH="/opt/venv/bin:$PATH"
 
-WORKDIR /usr/src/app
+WORKDIR /app
 
-# Dependencies stage
-FROM base as deps
+FROM base AS deps
 
-COPY package*.json ./
-RUN npm ci --only=production && \
-    # Remove npm cache
-    npm cache clean --force
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
-# Development stage
-FROM deps as development
+FROM deps AS development
 ENV NODE_ENV=development
 
-# Install dev dependencies
-RUN npm install && \
-    npm cache clean --force
+RUN npm install && npm cache clean --force
 
-# Create upload directory
-RUN mkdir -p uploads
+RUN mkdir -p /app/uploads
 
-# Copy source with specific paths to avoid unnecessary files
 COPY src/ ./src/
 COPY public/ ./public/
-COPY __tests__/ ./__tests__/
-COPY dev/ ./dev/
-COPY .eslintrc.json .eslintignore ./
+COPY test/ ./test/
+COPY eslint.config.js ./
 
-# Expose port
 EXPOSE 3000
 
 CMD ["npm", "run", "dev"]
 
-# Production stage
-FROM deps as production
+FROM deps AS production
 ENV NODE_ENV=production
+ENV UPLOAD_DIR=/app/uploads
 
-# Create upload directory
-RUN mkdir -p uploads
+RUN mkdir -p /app/uploads && chown -R node:node /app
 
-# Copy only necessary source files
-COPY src/ ./src/
-COPY public/ ./public/
+COPY --chown=node:node src/ ./src/
+COPY --chown=node:node public/ ./public/
 
-# Expose port
+USER node
+
 EXPOSE 3000
 
-CMD ["npm", "start"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "src/server.js"]
