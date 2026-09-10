@@ -423,6 +423,7 @@ h3 {
 }
 
 .stat-primary .stat-value { font-size: 1.7rem; color: var(--accent); }
+.stat-primary .stat-sub { white-space: normal; }
 
 .stat-sub {
     font-size: 0.75rem;
