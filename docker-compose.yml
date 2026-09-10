@@ -19,6 +19,10 @@ services:
             SHOW_FILE_LIST: "true"
             BASE_URL: http://localhost:3000
 
+            # Upload tuning: parallel streams per browser (1-6) and chunk size (0 = adaptive)
+            # UPLOAD_CONCURRENCY: 4
+            # UPLOAD_CHUNK_MB: 0
+
             # Comma-separated list of allowed origins for CORS
             # ALLOWED_ORIGINS: http://internalip:port,https://subdomain.example.com
 
