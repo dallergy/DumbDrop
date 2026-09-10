@@ -250,6 +250,156 @@ describe('Upload API Tests', () => {
       assert.strictEqual(rest.data.progress, 100);
     });
 
+    it('should accept parallel out-of-order chunks and assemble the file', async () => {
+      const payload = crypto.randomBytes(3 * 1024 * 1024 + 123);
+      const initResponse = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: '/api/upload/init',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }, {
+        filename: 'parallel.bin',
+        fileSize: payload.length,
+      });
+      const { uploadId } = initResponse.data;
+      assert.ok(uploadId);
+
+      const chunkSize = 1024 * 1024;
+      const chunks = [];
+      for (let offset = 0; offset < payload.length; offset += chunkSize) {
+        chunks.push([offset, payload.subarray(offset, Math.min(offset + chunkSize, payload.length))]);
+      }
+      // Send the last chunk first and everything else concurrently
+      chunks.reverse();
+      const responses = await Promise.all(chunks.map(([offset, body]) => makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: `/api/upload/chunk/${uploadId}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': body.length,
+          'X-Chunk-Offset': String(offset),
+        },
+      }, body)));
+
+      responses.forEach((r) => assert.strictEqual(r.status, 200));
+      const finished = responses.filter((r) => r.data.complete);
+      assert.ok(finished.length >= 1, 'the last chunk(s) to land should report completion');
+      const notFinished = responses.filter((r) => !r.data.complete);
+      notFinished.forEach((r) => assert.ok(r.data.bytesReceived < payload.length));
+
+      const written = await fs.readFile(path.join(config.uploadDir, 'parallel.bin'));
+      assert.ok(written.equals(payload), 'assembled file must match the original bytes');
+
+      // A late duplicate after completion is answered cleanly, not with 404
+      const late = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: `/api/upload/chunk/${uploadId}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': chunks[0][1].length,
+          'X-Chunk-Offset': String(chunks[0][0]),
+        },
+      }, chunks[0][1]);
+      assert.strictEqual(late.status, 200);
+      assert.strictEqual(late.data.complete, true);
+    });
+
+    it('should report missing ranges via the status endpoint', async () => {
+      const initResponse = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: '/api/upload/init',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }, { filename: 'status.bin', fileSize: 100 });
+      const { uploadId } = initResponse.data;
+
+      await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: `/api/upload/chunk/${uploadId}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-Chunk-Offset': '40',
+        },
+      }, Buffer.alloc(20, 1));
+
+      const status = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: `/api/upload/status/${uploadId}`,
+        method: 'GET',
+      });
+      assert.strictEqual(status.status, 200);
+      assert.strictEqual(status.data.bytesReceived, 20);
+      assert.deepStrictEqual(status.data.ranges, [[40, 60]]);
+      assert.deepStrictEqual(status.data.missing, [[0, 40], [60, 100]]);
+      assert.strictEqual(status.data.complete, false);
+
+      const missing = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: '/api/upload/status/does-not-exist',
+        method: 'GET',
+      });
+      assert.strictEqual(missing.status, 404);
+    });
+
+    it('should reject chunks that overrun the declared file size', async () => {
+      const initResponse = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: '/api/upload/init',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }, { filename: 'overrun.bin', fileSize: 10 });
+      const { uploadId } = initResponse.data;
+
+      const body = Buffer.alloc(8, 2);
+      const overrun = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: `/api/upload/chunk/${uploadId}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': body.length,
+          'X-Chunk-Offset': '5',
+        },
+      }, body);
+      assert.strictEqual(overrun.status, 400);
+
+      const beyond = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: `/api/upload/chunk/${uploadId}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-Chunk-Offset': '10',
+        },
+      }, Buffer.alloc(1));
+      assert.strictEqual(beyond.status, 400);
+
+      const badOffset = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: `/api/upload/chunk/${uploadId}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-Chunk-Offset': 'abc',
+        },
+      }, Buffer.alloc(1));
+      assert.strictEqual(badOffset.status, 400);
+    });
+
     it('should reject chunks for invalid uploadId', async () => {
       const chunk = Buffer.from('Test data');
       const response = await makeRequest({
@@ -337,6 +487,27 @@ describe('Upload API Tests', () => {
       
       assert.strictEqual(file2Response.status, 200);
       assert.notStrictEqual(file1Response.data.uploadId, file2Response.data.uploadId);
+    });
+
+    it('should map parallel inits of one folder batch to a single folder', async () => {
+      const batchId = `${Date.now()}-${crypto.randomBytes(5).toString('hex').slice(0, 9)}`;
+      const folder = `race-${crypto.randomBytes(3).toString('hex')}`;
+      const names = Array.from({ length: 8 }, (_, i) => `${folder}/file-${i}.txt`);
+
+      const responses = await Promise.all(names.map((filename) => makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: '/api/upload/init',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Batch-Id': batchId },
+      }, { filename, fileSize: 0 })));
+      responses.forEach((r) => assert.strictEqual(r.status, 200));
+
+      const created = (await fs.readdir(config.uploadDir)).filter((f) => f.startsWith(folder));
+      assert.deepStrictEqual(created, [folder], 'no "(1)", "(2)" sibling folders may be created');
+      const files = await fs.readdir(path.join(config.uploadDir, folder));
+      assert.strictEqual(files.length, names.length);
+      await fs.rm(path.join(config.uploadDir, folder), { recursive: true, force: true });
     });
   });
 });

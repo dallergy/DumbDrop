@@ -26,6 +26,9 @@ services:
       AUTO_UPLOAD: "true"
       SHOW_FILE_LIST: "true"
       TRUST_PROXY: "false"
+      # Upload tuning: parallel streams per browser (1-6), chunk size in MB (0 = adaptive)
+      UPLOAD_CONCURRENCY: 4
+      UPLOAD_CHUNK_MB: 0
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

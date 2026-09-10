@@ -21,6 +21,8 @@ const fs = require('fs'); // Get version from package.json
  * APPRISE_MESSAGE     - Notification message template (default provided)
  * APPRISE_SIZE_UNIT   - Size unit for notifications (optional)
  * ALLOWED_EXTENSIONS  - Comma-separated list of allowed file extensions (optional)
+ * UPLOAD_CONCURRENCY  - Parallel upload connections per browser (default: 4, max 6)
+ * UPLOAD_CHUNK_MB     - Fixed upload chunk size in MB (default: 0 = adaptive)
  */
 
 // Helper for clear configuration logging
@@ -246,6 +248,27 @@ const config = {
   })(),
 
   uploadPin: logAndReturn('UPLOAD_PIN', process.env.UPLOAD_PIN || null),
+
+  /**
+   * Parallel upload connections the browser should use (default: 4, max: 6).
+   * Browsers cap HTTP/1.1 at 6 connections per host, so higher values are clamped.
+   * Set via UPLOAD_CONCURRENCY in .env
+   */
+  uploadConcurrency: (() => {
+    const parsed = parseInt(process.env.UPLOAD_CONCURRENCY || '4', 10);
+    if (isNaN(parsed) || parsed < 1) return logAndReturn('UPLOAD_CONCURRENCY', 4, true);
+    return logAndReturn('UPLOAD_CONCURRENCY', Math.min(parsed, 6));
+  })(),
+
+  /**
+   * Fixed chunk size in MB for uploads (default: 0 = adaptive, 2–32MB).
+   * Set via UPLOAD_CHUNK_MB in .env when a link behaves badly with auto-sizing.
+   */
+  uploadChunkMb: (() => {
+    const parsed = parseInt(process.env.UPLOAD_CHUNK_MB || '0', 10);
+    if (isNaN(parsed) || parsed < 0) return logAndReturn('UPLOAD_CHUNK_MB', 0, true);
+    return logAndReturn('UPLOAD_CHUNK_MB', Math.min(parsed, 64));
+  })(),
 };
 
 console.log(`Upload directory configured as: ${config.uploadDir}`);

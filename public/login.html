@@ -1,17 +1,22 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{SITE_TITLE}} — Login</title>
     <meta name="color-scheme" content="light dark">
+    <script src="js/theme-init.js"></script>
     <link rel="stylesheet" href="styles.css">
     <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
     <script type="application/json" id="app-config">{{APP_CONFIG}}</script>
     <script type="module" src="js/login.js"></script>
 </head>
 <body class="auth-page">
+    <div class="backdrop" aria-hidden="true"></div>
     <main class="auth-card">
+        <span class="brand-mark" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+        </span>
         <h1>{{SITE_TITLE}}</h1>
         <p class="muted">Enter your PIN to continue</p>
         <form id="pin-form" class="pin-form">

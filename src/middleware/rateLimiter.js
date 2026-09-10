@@ -15,13 +15,23 @@ const createLimiter = (options) => {
 };
 
 /**
+ * Read a positive integer limit from the environment, falling back to a default.
+ */
+const envLimit = (name, fallback) => {
+  const parsed = parseInt(process.env[name] || '', 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+/**
  * Rate limiter for upload initialization
  * Limits the number of new upload jobs/batches that can be started
  * Does not limit the number of files within a batch or chunks within a file
  */
 const initUploadLimiter = createLimiter({
   windowMs: 60 * 1000, // 1 minute window
-  max: 180, // 3 new files/sec — enough for folders, still abuse-resistant
+  // 10 new files/sec: folder drops with thousands of small files were
+  // bottlenecked by the old 3/sec cap long before bandwidth mattered.
+  max: envLimit('UPLOAD_INIT_RATE_LIMIT', 600),
   message: { 
     error: 'Too many upload jobs started. Please wait before starting new uploads.' 
   },
@@ -36,7 +46,8 @@ const initUploadLimiter = createLimiter({
  */
 const chunkUploadLimiter = createLimiter({
   windowMs: 60 * 1000, // 1 minute window
-  max: 1200, // high enough for large-file chunk streams (~20/sec)
+  // ~50/sec: gigabit LAN with 2MB minimum chunks and 6 parallel streams
+  max: envLimit('UPLOAD_CHUNK_RATE_LIMIT', 3000),
   message: {
     error: 'Upload rate limit exceeded. Please wait before continuing.'
   },

@@ -169,9 +169,10 @@ For local development setup, troubleshooting, and advanced usage, see the dedica
 - **Folder downloads** – shared folders are streamed as compressed `.tar.gz` archives; files retain their original names.
 
 - 🚀 Drag and drop file uploads, clipboard paste, and mobile camera capture
-- ⚡ Unthrottled chunked uploads (8–16MB chunks, concurrent files — not capped at 1MB/s)
+- ⚡ Parallel chunked uploads that saturate the line (up to 6 streams per file, adaptive 2–32MB chunks, streamed to disk)
+- 📊 Live transfer dashboard: MB/s and Mbps, ETA, throughput sparkline, per-file progress, pause/cancel/retry
 - 📁 Multiple file and folder selection
-- 🎨 Clean 2026 UI (shadcn-inspired, light/dark/system)
+- 🎨 Modern glass UI with light/dark/system theme and no first-paint flash
 - 📦 Docker support with healthchecks and a non-root runtime user
 - 🔒 Optional PIN protection
 - 📱 Mobile-friendly interface
@@ -204,6 +205,10 @@ For local development setup, troubleshooting, and advanced usage, see the dedica
 | LOCAL_UPLOAD_DIR                                         | Directory for uploads (local dev, fallback: './local_uploads')                                                                        | ./local_uploads                                               | No       |
 | TRUST_PROXY                                              | Trust proxy headers (X-Forwarded-For) - only enable if behind a reverse proxy                                                         | false                                                         | No       |
 | TRUSTED_PROXY_IPS                                        | Comma-separated list of trusted proxy IPs (optional, requires TRUST_PROXY=true)                                                       | None                                                          | No       |
+| UPLOAD_CONCURRENCY                                       | Default number of parallel upload streams the browser uses (1–6; users can override in the UI)                                       | 4                                                             | No       |
+| UPLOAD_CHUNK_MB                                          | Fixed upload chunk size in MB (0 = adaptive 2–32MB based on measured speed)                                                           | 0                                                             | No       |
+| UPLOAD_INIT_RATE_LIMIT                                   | Max new upload sessions per minute per IP (raise for folders with thousands of files)                                                 | 600                                                           | No       |
+| UPLOAD_CHUNK_RATE_LIMIT                                  | Max chunk requests per minute per IP                                                                                                  | 3000                                                          | No       |
 
 - **UPLOAD_DIR** is used in Docker/production. If not set, LOCAL_UPLOAD_DIR is used for local development. If neither is set, the default is `./local_uploads`.
 - **Docker Note:** The Dockerfile now only creates the `uploads` directory inside the container. The host's `./local_uploads` is mounted to `/app/uploads` and should be managed on the host system.
@@ -414,8 +419,42 @@ Both {size} and {storage} use the same formatting rules based on APPRISE_SIZE_UN
 - **Frontend**: Vanilla JavaScript modules
 - **Container**: Docker multi-stage build, non-root user, `/health` check
 - **Security**: Helmet CSP, rate limiting, httpOnly PIN cookies
-- **Upload**: Offset-based chunked writes (no 1MB-per-request cap)
+- **Upload**: Parallel out-of-order chunks streamed from socket to disk (see below)
 - **Notifications**: Apprise integration
+
+### Upload Performance
+
+Earlier versions moved one chunk at a time per file and buffered each chunk in
+RAM before writing, which capped a 100 Mbps line at roughly 30–40 Mbps. The
+upload path was rebuilt around a shared connection pool:
+
+- **One pool, many streams.** The browser keeps `UPLOAD_CONCURRENCY` (default 4,
+  max 6) requests in flight at all times, fed by chunk tasks from every queued
+  file. A single 10 GB file uses all streams; a folder of 5,000 tiny files also
+  keeps every stream busy. Parallel streams defeat per-connection TCP window
+  limits and hide round-trip latency, which is what actually saturates a WAN
+  uplink.
+- **Any order, no gaps.** The server writes each chunk at its byte offset as it
+  arrives (positional writes on an open handle, socket reads coalesced into 1 MB
+  writes) and tracks coverage as merged byte ranges. A file is finalized when the
+  ranges cover it, regardless of arrival order. Nothing is buffered whole in
+  memory, so 32 MB chunks cost the server almost nothing.
+- **Adaptive chunks.** Chunk size targets ~2.5 s per stream and floats between
+  2 MB and 32 MB, so slow links keep retries cheap and fast links amortize
+  request overhead. Set `UPLOAD_CHUNK_MB` to pin it.
+- **Cheap retries, self-healing.** Failed chunks are retried with backoff
+  without holding a stream. If the client and server ever disagree,
+  `GET /api/upload/status/:id` returns the exact missing ranges and only those
+  are re-sent. Just-finished uploads are remembered briefly so a late duplicate
+  chunk gets a clean "complete" answer.
+- **Real progress.** XHR upload progress events drive the dashboard, so speed,
+  ETA and the sparkline reflect bytes on the wire rather than acknowledged
+  chunks.
+
+In a Chrome network-emulation test (100 Mbps uplink, 25 ms RTT) a 150 MB file
+uploads at ~99 Mbps sustained. On a real WAN, expect the gain from parallel
+streams to be larger than the emulator shows, because the emulator does not
+model per-connection congestion control.
 
 ### Dependencies
 

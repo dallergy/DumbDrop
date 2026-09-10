@@ -11,7 +11,7 @@ window.APP_CONFIG = { autoUpload: false, maxRetries: 5, showFileList: false, pin
 
 initTheme();
 
-const queue = new UploadQueue(document.getElementById('dropZone'));
+const queue = new UploadQueue();
 const fileListManager = new FileListManager();
 new ShareLinksManager();
 
@@ -22,11 +22,24 @@ const fileInput = document.getElementById('fileInput');
 const folderInput = document.getElementById('folderInput');
 const cameraInput = document.getElementById('cameraInput');
 const overlay = document.getElementById('dropOverlay');
+const settingsToggle = document.getElementById('settingsToggle');
+const settingsPopover = document.getElementById('settingsPopover');
 
 document.getElementById('themeToggle')?.addEventListener('click', () => {
   const next = cycleTheme();
   document.getElementById('themeToggle').setAttribute('aria-label', `Theme: ${getThemePreference()}`);
   toast(`Theme: ${next === 'dark' || next === 'light' ? next : 'system'}`, true);
+});
+
+function setSettingsOpen(open) {
+  settingsPopover.hidden = !open;
+  settingsToggle.setAttribute('aria-expanded', String(open));
+}
+settingsToggle?.addEventListener('click', () => setSettingsOpen(settingsPopover.hidden));
+document.addEventListener('click', (e) => {
+  if (!settingsPopover.hidden && !settingsPopover.contains(e.target) && e.target !== settingsToggle && !settingsToggle.contains(e.target)) {
+    setSettingsOpen(false);
+  }
 });
 
 document.getElementById('browseFilesBtn')?.addEventListener('click', () => fileInput.click());
@@ -113,7 +126,10 @@ document.getElementById('shareModal')?.addEventListener('click', (e) => {
   if (e.target.id === 'shareModal') fileListManager.closeShare();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') fileListManager.closeShare();
+  if (e.key === 'Escape') {
+    fileListManager.closeShare();
+    setSettingsOpen(false);
+  }
 });
 
 async function handleDrop(e) {

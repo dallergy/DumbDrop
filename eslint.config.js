@@ -71,9 +71,12 @@ module.exports = [
         Blob: 'readonly',
         AbortController: 'readonly',
         CustomEvent: 'readonly',
+        XMLHttpRequest: 'readonly',
         URL: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
         console: 'readonly',
         Toastify: 'readonly',
         alert: 'readonly',
@@ -87,6 +90,15 @@ module.exports = [
       'n/no-missing-import': 'off',
       'n/file-extension-in-import': 'off',
     },
+  },
+  {
+    files: ['public/js/theme-init.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'script',
+      globals: { window: 'readonly', document: 'readonly', localStorage: 'readonly' },
+    },
+    rules: { 'n/no-unsupported-features/node-builtins': 'off' },
   },
   {
     files: ['public/service-worker.js'],
