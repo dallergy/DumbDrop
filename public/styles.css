@@ -1,57 +1,62 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 /**
- * DumbDrop Plus visual system
- * Ink charcoal + pine teal. No purple candy buttons.
+ * DumbDrop Plus — shadcn-inspired design system (2026)
+ * Zinc palette, subtle borders, clean cards, Inter typography.
  */
 
 :root {
-    --bg-color: #f3f1ec;
-    --bg-accent: #e7ece7;
-    --text-color: #1c1917;
-    --text-color-secondary: #78716c;
-    --container-bg: #fffcf7;
-    --border-color: #ddd6ce;
-    --highlight-color: #0f766e;
-    --highlight-hover: #0d9488;
-    --progress-bg: #e7e5e4;
-    --primary-color: #0f766e;
-    --secondary-color: #d6d3d1;
-    --textarea-bg: rgba(255, 255, 255, 0.7);
-    --danger-color: #b91c1c;
-    --danger-hover: #991b1b;
-    --success-color: #0f766e;
-    --success-hover: #0d9488;
-    --warning-color: #a16207;
-    --surface-muted: #f5f2ed;
-    --button-text: #ffffff;
-    --shadow-soft: 0 12px 40px rgba(28, 25, 23, 0.08);
-    --radius: 14px;
-    --font-body: 'DM Sans', 'Segoe UI', sans-serif;
-    --font-display: 'Fraunces', Georgia, serif;
+    --bg-color: hsl(0 0% 98%);
+    --bg-accent: hsl(240 4.8% 95.9%);
+    --text-color: hsl(240 10% 3.9%);
+    --text-color-secondary: hsl(240 3.8% 46.1%);
+    --container-bg: hsl(0 0% 100%);
+    --border-color: hsl(240 5.9% 90%);
+    --highlight-color: hsl(240 5.9% 10%);
+    --highlight-hover: hsl(240 5.9% 20%);
+    --progress-bg: hsl(240 4.8% 95.9%);
+    --primary-color: hsl(240 5.9% 10%);
+    --secondary-color: hsl(240 4.8% 95.9%);
+    --textarea-bg: hsl(0 0% 100%);
+    --danger-color: hsl(0 72.2% 50.6%);
+    --danger-hover: hsl(0 72.2% 45%);
+    --success-color: hsl(142 76% 36%);
+    --success-hover: hsl(142 76% 30%);
+    --warning-color: hsl(38 92% 50%);
+    --surface-muted: hsl(240 4.8% 95.9%);
+    --button-text: hsl(0 0% 98%);
+    --shadow-soft: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --radius: 0.5rem;
+    --radius-lg: 0.75rem;
+    --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-display: 'Inter', system-ui, -apple-system, sans-serif;
+    --ring: hsl(240 5.9% 10% / 0.15);
 }
 
 [data-theme="dark"] {
-    --bg-color: #141210;
-    --bg-accent: #1c1917;
-    --text-color: #f5f2ed;
-    --text-color-secondary: #a8a29e;
-    --container-bg: #1c1917;
-    --border-color: #3f3a36;
-    --highlight-color: #2dd4bf;
-    --highlight-hover: #5eead4;
-    --progress-bg: #292524;
-    --primary-color: #2dd4bf;
-    --secondary-color: #44403c;
-    --textarea-bg: rgba(255, 255, 255, 0.04);
-    --danger-color: #f87171;
-    --danger-hover: #ef4444;
-    --success-color: #2dd4bf;
-    --success-hover: #5eead4;
-    --warning-color: #fbbf24;
-    --surface-muted: #221f1c;
-    --button-text: #042f2e;
-    --shadow-soft: 0 12px 40px rgba(0, 0, 0, 0.35);
+    --bg-color: hsl(240 10% 3.9%);
+    --bg-accent: hsl(240 10% 6%);
+    --text-color: hsl(0 0% 98%);
+    --text-color-secondary: hsl(240 5% 64.9%);
+    --container-bg: hsl(240 10% 6%);
+    --border-color: hsl(240 3.7% 15.9%);
+    --highlight-color: hsl(0 0% 98%);
+    --highlight-hover: hsl(240 5% 84%);
+    --progress-bg: hsl(240 3.7% 15.9%);
+    --primary-color: hsl(0 0% 98%);
+    --secondary-color: hsl(240 3.7% 15.9%);
+    --textarea-bg: hsl(240 10% 6%);
+    --danger-color: hsl(0 62.8% 50.6%);
+    --danger-hover: hsl(0 62.8% 45%);
+    --success-color: hsl(142 70% 45%);
+    --success-hover: hsl(142 70% 40%);
+    --warning-color: hsl(38 92% 50%);
+    --surface-muted: hsl(240 3.7% 15.9%);
+    --button-text: hsl(240 5.9% 10%);
+    --shadow-soft: 0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.3);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+    --ring: hsl(0 0% 98% / 0.15);
 }
 
 * {
@@ -63,15 +68,14 @@
 body {
     min-height: 100vh;
     font-family: var(--font-body);
-    background:
-        radial-gradient(ellipse 80% 50% at 10% -10%, rgba(15, 118, 110, 0.12), transparent 55%),
-        radial-gradient(ellipse 60% 40% at 100% 0%, rgba(28, 25, 23, 0.06), transparent 45%),
-        linear-gradient(180deg, var(--bg-color), var(--bg-accent));
+    background: var(--bg-color);
     display: flex;
     justify-content: center;
     padding: 2rem 1rem 3rem;
     color: var(--text-color);
-    transition: background-color 0.3s ease, color 0.3s ease;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 .container,
@@ -104,13 +108,14 @@ body {
 .brand-badge {
     display: inline-flex;
     align-items: center;
-    padding: 0.2rem 0.55rem;
-    border-radius: 6px;
-    background: var(--text-color);
-    color: var(--container-bg);
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
+    padding: 0.15rem 0.5rem;
+    border-radius: calc(var(--radius) - 2px);
+    background: var(--surface-muted);
+    color: var(--text-color-secondary);
+    border: 1px solid var(--border-color);
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
 }
 
@@ -118,6 +123,24 @@ body {
     margin-top: 0.45rem;
     color: var(--text-color-secondary);
     font-size: 0.98rem;
+}
+
+.logout-btn {
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: transparent;
+    color: var(--text-color-secondary);
+    border: 1px solid var(--border-color);
+    padding: 0.35rem 0.75rem;
+    height: auto;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.logout-btn:hover {
+    background: var(--surface-muted);
+    color: var(--text-color);
 }
 
 .theme-toggle {
@@ -133,11 +156,12 @@ body {
     align-items: center;
     justify-content: center;
     color: var(--text-color);
-    transition: background-color 0.3s ease;
+    transition: background-color 0.15s ease;
+    height: auto;
 }
 
 .theme-toggle:hover {
-    background-color: rgba(28, 25, 23, 0.08);
+    background-color: var(--surface-muted);
 }
 
 .theme-toggle svg {
@@ -156,18 +180,23 @@ h1 {
 
 .upload-container {
     background: var(--container-bg);
-    border-radius: var(--radius);
+    border-radius: var(--radius-lg);
     padding: 2.5rem 1.25rem;
-    border: 1.5px dashed var(--border-color);
+    border: 1px dashed var(--border-color);
     box-shadow: var(--shadow-soft);
     cursor: pointer;
-    transition: border-color 0.2s ease, transform 0.2s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
     margin-bottom: 1.25rem;
+}
+
+.upload-container:hover {
+    border-color: hsl(240 5.9% 70%);
 }
 
 .upload-container.highlight {
     border-color: var(--highlight-color);
     border-style: solid;
+    box-shadow: 0 0 0 3px var(--ring);
 }
 
 .upload-content {
@@ -192,17 +221,26 @@ button {
     background: var(--highlight-color);
     color: var(--button-text);
     border: 1px solid transparent;
-    padding: 0.7rem 1.2rem;
-    border-radius: 10px;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius);
     font-family: var(--font-body);
-    font-size: 0.95rem;
-    font-weight: 600;
+    font-size: 0.875rem;
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    transition: background 0.15s ease, opacity 0.15s ease;
+    height: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 button:hover {
     background: var(--highlight-hover);
+}
+
+button:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
 }
 
 button:disabled {
@@ -220,10 +258,11 @@ button:disabled {
 
 .file-item {
     background: var(--container-bg);
-    padding: 10px 15px;
-    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
     text-align: left;
     border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-soft);
 }
 
 .upload-button {
@@ -250,9 +289,10 @@ button:disabled {
 
 .progress-container {
     background: var(--container-bg);
-    padding: 15px;
-    border-radius: 10px;
+    padding: 1rem;
+    border-radius: var(--radius);
     border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-soft);
 }
 
 .progress-label {
@@ -281,8 +321,8 @@ button:disabled {
 
 .progress {
     background: var(--progress-bg);
-    border-radius: 10px;
-    height: 8px;
+    border-radius: 9999px;
+    height: 6px;
     overflow: hidden;
     margin-top: 8px;
     margin-bottom: 8px;
@@ -291,7 +331,8 @@ button:disabled {
 .progress-bar {
     height: 100%;
     background: var(--highlight-color);
-    transition: width 0.3s ease;
+    border-radius: 9999px;
+    transition: width 0.2s ease;
 }
 
 .modal {

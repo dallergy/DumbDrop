@@ -16,7 +16,7 @@ const { config, validateConfig } = require('./config');
 const logger = require('./utils/logger');
 const { ensureDirectoryExists } = require('./utils/fileUtils');
 const { getHelmetConfig, requirePin } = require('./middleware/security');
-const { safeCompare } = require('./utils/security');
+const { isValidSession, SESSION_COOKIE } = require('./utils/security');
 const { initUploadLimiter, pinVerifyLimiter, pinStatusLimiter, downloadLimiter } = require('./middleware/rateLimiter');
 const { injectDemoBanner, demoMiddleware } = require('./utils/demoMode');
 const { originValidationMiddleware, getCorsOptions } = require('./middleware/cors');
@@ -114,7 +114,7 @@ app.get('/share/:token', (req, res) => {
 // Root route
 app.get('/', (req, res) => {
   // Check if the PIN is configured and the cookie exists
-  if (config.pin && (!req.cookies?.DUMBDROP_PIN || !safeCompare(req.cookies.DUMBDROP_PIN, config.pin))) {
+  if (config.pin && !isValidSession(req.cookies?.[SESSION_COOKIE])) {
     return res.redirect('/login.html');
   }
 
@@ -123,6 +123,9 @@ app.get('/', (req, res) => {
   html = html.replace('{{AUTO_UPLOAD}}', config.autoUpload.toString());
   html = html.replace('{{MAX_RETRIES}}', config.clientMaxRetries.toString());
   html = html.replace('{{SHOW_FILE_LIST}}', config.showFileList.toString());
+  html = html.replace('{{CHUNK_SIZE}}', config.chunkSize.toString());
+  html = html.replace('{{PARALLEL_CHUNKS}}', config.parallelChunks.toString());
+  html = html.replace('{{PARALLEL_FILES}}', config.parallelFiles.toString());
   html = injectDemoBanner(html);
   res.send(html);
 });
@@ -153,6 +156,10 @@ app.use((req, res, next) => {
     if (req.path === '/index.html' || req.path === 'index.html') {
       html = html.replace('{{AUTO_UPLOAD}}', config.autoUpload.toString());
       html = html.replace('{{MAX_RETRIES}}', config.clientMaxRetries.toString());
+      html = html.replace('{{SHOW_FILE_LIST}}', config.showFileList.toString());
+      html = html.replace('{{CHUNK_SIZE}}', config.chunkSize.toString());
+      html = html.replace('{{PARALLEL_CHUNKS}}', config.parallelChunks.toString());
+      html = html.replace('{{PARALLEL_FILES}}', config.parallelFiles.toString());
     }
     // Ensure baseUrl has a trailing slash
     const baseUrlWithSlash = config.baseUrl.endsWith('/') ? config.baseUrl : config.baseUrl + '/';

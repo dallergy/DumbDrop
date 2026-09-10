@@ -15,6 +15,7 @@
 <body>
     <div class="container app-shell">
         <header class="app-header">
+            <button id="logoutBtn" class="logout-btn" type="button" hidden aria-label="Log out">Log out</button>
             <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">
                 <svg xmlns="http://www.w3.org/2000/svg" class="theme-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path class="moon" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
@@ -151,8 +152,10 @@
     </div>
 
     <script defer>
-        const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
-        const RETRY_DELAY = 1000; // 1 second delay between retries
+        const CHUNK_SIZE = parseInt('{{CHUNK_SIZE}}', 10) || (8 * 1024 * 1024);
+        const PARALLEL_CHUNKS = parseInt('{{PARALLEL_CHUNKS}}', 10) || 4;
+        const PARALLEL_FILES = parseInt('{{PARALLEL_FILES}}', 10) || 3;
+        const RETRY_DELAY = 1000;
 
         // Read MAX_RETRIES from the injected server value, with a fallback
         const MAX_RETRIES_STR = '{{MAX_RETRIES}}';
@@ -208,7 +211,9 @@
                 this.uploadId = null;
                 this.position = 0;
                 this.progressElement = null;
-                this.chunkSize = 1024 * 1024; // 1MB chunks
+                this.chunkSize = CHUNK_SIZE;
+                this.parallelChunks = PARALLEL_CHUNKS;
+                this.aborted = false;
                 this.lastUploadedBytes = 0;
                 this.lastUploadTime = null;
                 this.uploadRate = 0;
@@ -278,31 +283,36 @@
 
             async uploadChunks() {
                 this.createProgressElement();
-                let currentChunkStartPosition = this.position; // Track start position for retries
+                const totalChunks = Math.ceil(this.file.size / this.chunkSize);
+                let nextChunkIndex = 0;
+                let completedBytes = 0;
 
-                while (this.position < this.file.size) {
-                    const chunk = await this.readChunk(); // Reads based on current this.position
-                    try {
-                        // Attempt to upload the chunk with retry logic
-                        // Pass the position *before* reading the chunk, as that's the start of the data being sent
-                        await this.uploadChunkWithRetry(chunk, currentChunkStartPosition);
-                        // If successful, update the start position for the *next* chunk read
-                        // this.position is updated internally by readChunk, so currentChunkStartPosition reflects the next read point
-                        currentChunkStartPosition = this.position;
-                    } catch (error) {
-                        // If uploadChunkWithRetry fails after all retries, propagate the error
-                        console.error(`UploadChunks failed after retries for chunk starting at ${currentChunkStartPosition}. File: ${this.file.webkitRelativePath || this.file.name}`);
-                        throw error; // Propagate up to the start() method's catch block
+                const worker = async () => {
+                    while (true) {
+                        if (this.aborted) {
+                            throw new Error('Upload cancelled');
+                        }
+
+                        const chunkIndex = nextChunkIndex++;
+                        if (chunkIndex >= totalChunks) break;
+
+                        const start = chunkIndex * this.chunkSize;
+                        const end = Math.min(start + this.chunkSize, this.file.size);
+                        const chunk = await this.file.slice(start, end).arrayBuffer();
+
+                        await this.uploadChunkWithRetry(chunk, start);
+                        completedBytes += (end - start);
+                        this.position = completedBytes;
+                        this.updateProgress(Math.min(100, (completedBytes / this.file.size) * 100));
                     }
-                }
-            }
+                };
 
-            async readChunk() {
-                const start = this.position;
-                const end = Math.min(this.position + this.chunkSize, this.file.size);
-                const blob = this.file.slice(start, end);
-                this.position = end;
-                return await blob.arrayBuffer();
+                const workers = Array.from(
+                    { length: Math.min(this.parallelChunks, totalChunks) },
+                    () => worker()
+                );
+
+                await Promise.all(workers);
             }
 
             async uploadChunkWithRetry(chunk, chunkStartPosition) {
@@ -325,12 +335,11 @@
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/octet-stream',
-                                'X-Batch-ID': this.batchId
-                                // Consider adding 'Content-Range': `bytes ${chunkStartPosition}-${chunkStartPosition + chunk.byteLength - 1}/${this.file.size}`
-                                // If the server supports handling potential duplicate chunks via Content-Range
+                                'X-Batch-ID': this.batchId,
+                                'X-Chunk-Offset': String(chunkStartPosition)
                             },
                             body: chunk,
-                            signal: controller.signal // Add abort signal
+                            signal: controller.signal
                         });
 
                         clearTimeout(timeoutId); // Clear timeout if fetch completes
@@ -1017,12 +1026,24 @@
                 const batchId = generateBatchId();
                 const results = [];
                 
-                // Process files sequentially within the same batch to prevent overwhelming the server
-                for (const file of files) {
-                    const uploader = new FileUploader(file, batchId);
-                    const result = await uploader.start();
-                    results.push(result);
-                }
+                const queue = [...files];
+                const activeUploaders = [];
+
+                const runNext = async () => {
+                    while (queue.length > 0) {
+                        const file = queue.shift();
+                        const uploader = new FileUploader(file, batchId);
+                        activeUploaders.push(uploader);
+                        const result = await uploader.start();
+                        results.push(result);
+                    }
+                };
+
+                const fileWorkers = Array.from(
+                    { length: Math.min(PARALLEL_FILES, files.length) },
+                    () => runNext()
+                );
+                await Promise.all(fileWorkers);
                 
                 const successful = results.filter(r => r).length;
                 const total = results.length;
@@ -1682,9 +1703,30 @@
         }
 
         // Initialize theme
-        const savedTheme = localStorage.getItem('theme') || 
+        const savedTheme = localStorage.getItem('theme') ||
             (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
         setTheme(savedTheme);
+
+        async function initLogout() {
+            const logoutBtn = document.getElementById('logoutBtn');
+            if (!logoutBtn) return;
+
+            try {
+                const res = await fetch('api/auth/pin-required');
+                const data = await res.json();
+                if (data.required) {
+                    logoutBtn.hidden = false;
+                    logoutBtn.addEventListener('click', async () => {
+                        await fetch('api/auth/logout', { method: 'POST' });
+                        window.location.href = 'login.html';
+                    });
+                }
+            } catch (err) {
+                console.warn('Could not check PIN status for logout button', err);
+            }
+        }
+
+        initLogout();
     </script>
 </body>
 </html>

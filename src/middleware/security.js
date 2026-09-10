@@ -4,7 +4,7 @@
  * Provides Express middleware for securing routes and responses.
  */
 
-const { safeCompare } = require('../utils/security');
+const { safeCompare, isValidSession, createSession, SESSION_COOKIE, SESSION_DURATION_MS } = require('../utils/security');
 const logger = require('../utils/logger');
 const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'production';
@@ -48,24 +48,34 @@ const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 // }
 
 function getHelmetConfig() {
-  // const isSecure = BASE_URL.startsWith('https://');
-  
+  const isSecure = BASE_URL.startsWith('https://');
+
   return {
-    noSniff: true, // Prevent MIME type sniffing
-    frameguard: { action: 'deny' }, // Prevent clickjacking
-    crossOriginEmbedderPolicy: false, // Disable for local network access
-    crossOriginOpenerPolicy: false, // Disable to prevent warnings on HTTP
-    crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allow cross-origin for local network
-    referrerPolicy: { policy: 'no-referrer-when-downgrade' }, // Set referrer policy
-    ieNoOpen: true, // Prevent IE from executing downloads
-    // hsts: isSecure ? { maxAge: 31536000, includeSubDomains: true } : false, // Only enforce HTTPS if using HTTPS
-    // Disabled Helmet middlewares:
-    hsts: false,
-    contentSecurityPolicy: false, // Disable CSP for now
-    dnsPrefetchControl: true, // Disable DNS prefetching
+    noSniff: true,
+    frameguard: { action: 'deny' },
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    ieNoOpen: true,
+    hsts: isSecure ? { maxAge: 31536000, includeSubDomains: true } : false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        connectSrc: ["'self'"],
+        frameAncestors: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"]
+      }
+    },
+    dnsPrefetchControl: true,
     permittedCrossDomainPolicies: false,
     originAgentCluster: false,
-    xssFilter: false,
+    xssFilter: false
   };
 }
 
@@ -80,25 +90,36 @@ function requirePin(PIN) {
       return next();
     }
 
-    // Check cookie first
-    const cookiePin = req.cookies?.DUMBDROP_PIN;
-    if (cookiePin && safeCompare(cookiePin, PIN)) {
+    const sessionToken = req.cookies?.[SESSION_COOKIE];
+    if (sessionToken && isValidSession(sessionToken)) {
       return next();
     }
 
-    // Check header as fallback
-    const headerPin = req.headers['x-pin'];
-    if (headerPin && safeCompare(headerPin, PIN)) {
-      // Set cookie for subsequent requests with enhanced security
-      const cookieOptions = {
-        httpOnly: true, // Always enable HttpOnly
+    // Legacy PIN cookie support (deprecated — migrate to session tokens)
+    const cookiePin = req.cookies?.DUMBDROP_PIN;
+    if (cookiePin && safeCompare(cookiePin, PIN)) {
+      const newSession = createSession(req.ip);
+      res.cookie(SESSION_COOKIE, newSession, {
+        httpOnly: true,
         secure: req.secure || (BASE_URL.startsWith('https') && NODE_ENV === 'production'),
         sameSite: 'strict',
         path: '/',
-        maxAge: 24 * 60 * 60 * 1000 // 24 hour expiry
-      };
-      
-      res.cookie('DUMBDROP_PIN', headerPin, cookieOptions);
+        maxAge: SESSION_DURATION_MS
+      });
+      res.clearCookie('DUMBDROP_PIN', { path: '/' });
+      return next();
+    }
+
+    const headerPin = req.headers['x-pin'];
+    if (headerPin && safeCompare(headerPin, PIN)) {
+      const newSession = createSession(req.ip);
+      res.cookie(SESSION_COOKIE, newSession, {
+        httpOnly: true,
+        secure: req.secure || (BASE_URL.startsWith('https') && NODE_ENV === 'production'),
+        sameSite: 'strict',
+        path: '/',
+        maxAge: SESSION_DURATION_MS
+      });
       return next();
     }
 

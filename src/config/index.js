@@ -245,6 +245,34 @@ const config = {
     return logAndReturn('CLIENT_MAX_RETRIES', retries);
   })(),
 
+  /**
+   * Client chunk size in bytes (default: 8MB)
+   * Set via CHUNK_SIZE_MB in .env
+   */
+  chunkSize: (() => {
+    const sizeMb = parseInt(process.env.CHUNK_SIZE_MB || '8', 10);
+    const clamped = isNaN(sizeMb) || sizeMb < 1 ? 8 : Math.min(sizeMb, 64);
+    return clamped * 1024 * 1024;
+  })(),
+
+  /**
+   * Parallel chunk uploads per file (default: 4)
+   * Set via PARALLEL_CHUNKS in .env
+   */
+  parallelChunks: (() => {
+    const value = parseInt(process.env.PARALLEL_CHUNKS || '4', 10);
+    return isNaN(value) || value < 1 ? 4 : Math.min(value, 8);
+  })(),
+
+  /**
+   * Parallel file uploads per batch (default: 3)
+   * Set via PARALLEL_FILES in .env
+   */
+  parallelFiles: (() => {
+    const value = parseInt(process.env.PARALLEL_FILES || '3', 10);
+    return isNaN(value) || value < 1 ? 3 : Math.min(value, 6);
+  })(),
+
   uploadPin: logAndReturn('UPLOAD_PIN', process.env.UPLOAD_PIN || null),
 };
 

@@ -1,64 +1,53 @@
 # Base stage for shared configurations
-FROM node:22-alpine as base
+FROM node:22-alpine AS base
 
 # Install python and create virtual environment with minimal dependencies
-RUN apk add --no-cache python3 py3-pip && \
+RUN apk add --no-cache python3 py3-pip curl && \
     python3 -m venv /opt/venv && \
     rm -rf /var/cache/apk/*
 
 # Activate virtual environment and install apprise
 RUN . /opt/venv/bin/activate && \
-    pip install --no-cache-dir apprise && \
+    pip install --no-cache-dir --upgrade pip apprise && \
     find /opt/venv -type d -name "__pycache__" -exec rm -r {} +
 
-# Add virtual environment to PATH
 ENV PATH="/opt/venv/bin:$PATH"
-
-WORKDIR /usr/src/app
+WORKDIR /app
 
 # Dependencies stage
-FROM base as deps
+FROM base AS deps
 
 COPY package*.json ./
-RUN npm ci --only=production && \
-    # Remove npm cache
-    npm cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force && chown -R node:node /app
 
 # Development stage
-FROM deps as development
+FROM deps AS development
 ENV NODE_ENV=development
 
-# Install dev dependencies
-RUN npm install && \
-    npm cache clean --force
+RUN npm install && npm cache clean --force
 
-# Create upload directory
-RUN mkdir -p uploads
+RUN mkdir -p uploads && chown -R node:node /app
+USER node
 
-# Copy source with specific paths to avoid unnecessary files
-COPY src/ ./src/
-COPY public/ ./public/
-COPY __tests__/ ./__tests__/
-COPY dev/ ./dev/
-COPY .eslintrc.json .eslintignore ./
+COPY --chown=node:node src/ ./src/
+COPY --chown=node:node public/ ./public/
 
-# Expose port
 EXPOSE 3000
-
 CMD ["npm", "run", "dev"]
 
 # Production stage
-FROM deps as production
+FROM deps AS production
 ENV NODE_ENV=production
 
-# Create upload directory
-RUN mkdir -p uploads
+RUN mkdir -p uploads && chown -R node:node /app
+USER node
 
-# Copy only necessary source files
-COPY src/ ./src/
-COPY public/ ./public/
+COPY --chown=node:node src/ ./src/
+COPY --chown=node:node public/ ./public/
 
-# Expose port
 EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:3000/api/auth/pin-required || exit 1
 
 CMD ["npm", "start"]

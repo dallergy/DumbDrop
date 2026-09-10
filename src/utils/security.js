@@ -123,26 +123,79 @@ function safeCompare(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') {
     return false;
   }
-  
+
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+
+  if (bufA.length !== bufB.length) {
+    return false;
+  }
+
   try {
-    return crypto.timingSafeEqual(
-      Buffer.from(a.padEnd(32)),
-      Buffer.from(b.padEnd(32))
-    );
+    return crypto.timingSafeEqual(bufA, bufB);
   } catch (err) {
     logger.error(`Safe compare error: ${err.message}`);
     return false;
   }
 }
 
+/** @type {Map<string, { createdAt: number, ip: string }>} */
+const activeSessions = new Map();
+
+const SESSION_COOKIE = 'DUMBDROP_SESSION';
+const SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Create a signed session token after successful PIN verification.
+ * @param {string} ip - Client IP address
+ * @returns {string} Session token
+ */
+function createSession(ip) {
+  const token = crypto.randomBytes(32).toString('hex');
+  activeSessions.set(token, { createdAt: Date.now(), ip });
+  return token;
+}
+
+/**
+ * Validate an active session token.
+ * @param {string} token - Session token from cookie
+ * @returns {boolean}
+ */
+function isValidSession(token) {
+  if (!token || typeof token !== 'string') return false;
+
+  const session = activeSessions.get(token);
+  if (!session) return false;
+
+  if (Date.now() - session.createdAt > SESSION_DURATION_MS) {
+    activeSessions.delete(token);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Revoke a session token.
+ * @param {string} token - Session token
+ */
+function revokeSession(token) {
+  if (token) activeSessions.delete(token);
+}
+
 module.exports = {
   MAX_ATTEMPTS,
   LOCKOUT_DURATION,
+  SESSION_COOKIE,
+  SESSION_DURATION_MS,
   resetAttempts,
   isLockedOut,
   recordAttempt,
   validatePin,
   safeCompare,
+  createSession,
+  isValidSession,
+  revokeSession,
   startCleanupInterval,
   stopCleanupInterval
 }; 

@@ -9,25 +9,37 @@
     <style>
         .login-container {
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
             min-height: 100vh;
             padding: 1rem;
         }
 
+        .login-card {
+            width: 100%;
+            max-width: 400px;
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+            background: var(--container-bg);
+            box-shadow: var(--shadow-md);
+        }
+
         .pin-header {
             text-align: center;
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
         }
 
         .pin-header h1 {
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.35rem;
+            font-size: 1.5rem;
+            font-weight: 600;
         }
 
         .pin-header h2 {
-            font-weight: 500;
-            opacity: 0.9;
+            font-weight: 400;
+            font-size: 0.875rem;
+            color: var(--text-color-secondary);
         }
 
         #pin-form {
@@ -36,14 +48,14 @@
             gap: 0.5rem;
             justify-content: center;
             max-width: 100%;
-            padding: 2rem 1rem;
+            padding: 1rem 0;
         }
 
         .error-message {
             text-align: center;
-            margin-top: 1rem;
+            margin-top: 0.75rem;
             color: var(--danger-color);
-            max-width: 300px;
+            font-size: 0.8125rem;
             line-height: 1.4;
         }
 
@@ -57,14 +69,16 @@
 </head>
 <body>
     <div class="login-container">
-        <div class="pin-header">
-            <h1>{{SITE_TITLE}}</h1>
-            <h2>Enter PIN</h2>
+        <div class="login-card">
+            <div class="pin-header">
+                <h1>{{SITE_TITLE}}</h1>
+                <h2>Enter your PIN to continue</h2>
+            </div>
+            <form id="pin-form">
+                <!-- PIN inputs will be dynamically added here -->
+            </form>
+            <p id="pin-error" class="error-message"></p>
         </div>
-        <form id="pin-form">
-            <!-- PIN inputs will be dynamically added here -->
-        </form>
-        <p id="pin-error" class="error-message"></p>
     </div>
 
     <script>

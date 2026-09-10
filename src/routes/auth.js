@@ -2,14 +2,18 @@ const express = require('express');
 const router = express.Router();
 const { config } = require('../config');
 const logger = require('../utils/logger');
-const { 
-  validatePin, 
-  safeCompare, 
-  isLockedOut, 
-  recordAttempt, 
+const {
+  validatePin,
+  safeCompare,
+  isLockedOut,
+  recordAttempt,
   resetAttempts,
+  createSession,
+  revokeSession,
+  SESSION_COOKIE,
+  SESSION_DURATION_MS,
   MAX_ATTEMPTS,
-  LOCKOUT_DURATION 
+  LOCKOUT_DURATION
 } = require('../utils/security');
 const { getClientIp } = require('../utils/ipExtractor');
 const PORT = process.env.PORT || 3000;
@@ -32,6 +36,7 @@ router.post('/verify-pin', (req, res) => {
       //   path: '/'
       // });
       res.clearCookie('DUMBDROP_PIN', { path: '/' });
+      res.clearCookie(SESSION_COOKIE, { path: '/' });
       return res.json({ success: true, error: null, path: '/' });
     }
 
@@ -64,13 +69,17 @@ router.post('/verify-pin', (req, res) => {
       // Reset attempts on successful login
       resetAttempts(ip);
       
-      // Set secure cookie with cleaned PIN
-      res.cookie('DUMBDROP_PIN', cleanedPin, {
+      const sessionToken = createSession(ip);
+      const cookieOptions = {
         httpOnly: true,
         secure: req.secure || (BASE_URL.startsWith('https') && NODE_ENV === 'production'),
         sameSite: 'strict',
-        path: '/'
-      });
+        path: '/',
+        maxAge: SESSION_DURATION_MS
+      };
+
+      res.cookie(SESSION_COOKIE, sessionToken, cookieOptions);
+      res.clearCookie('DUMBDROP_PIN', { path: '/' });
 
       logger.info(`Successful PIN verification from IP: ${ip}`);
       res.json({ success: true, error: null });
@@ -113,7 +122,9 @@ router.get('/pin-required', (req, res) => {
  */
 router.post('/logout', (req, res) => {
   try {
+    revokeSession(req.cookies?.[SESSION_COOKIE]);
     res.clearCookie('DUMBDROP_PIN', { path: '/' });
+    res.clearCookie(SESSION_COOKIE, { path: '/' });
     logger.info(`Logout successful for IP: ${getClientIp(req)}`);
     res.json({ success: true });
   } catch (err) {
