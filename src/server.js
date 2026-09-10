@@ -54,6 +54,8 @@ async function startServer() {
 
     // Track new connections
     server.on('connection', (connection) => {
+      // Small JSON acks per chunk should not wait on Nagle's algorithm
+      connection.setNoDelay(true);
       connections.add(connection);
       connection.on('close', () => {
         connections.delete(connection);

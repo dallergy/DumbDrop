@@ -135,16 +135,26 @@ app.get('/', (req, res) => {
 
   let html = fs.readFileSync(path.join(__dirname, '../public', 'index.html'), 'utf8');
   html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
-  html = html.replace('{{APP_CONFIG}}', JSON.stringify({
+  html = html.replace('{{APP_CONFIG}}', JSON.stringify(indexAppConfig()));
+  html = injectDemoBanner(html);
+  res.send(html);
+});
+
+/**
+ * Client-side settings injected into index.html.
+ */
+function indexAppConfig() {
+  return {
     autoUpload: config.autoUpload,
     maxRetries: config.clientMaxRetries,
     showFileList: config.showFileList,
     pinEnabled: Boolean(config.pin),
     basePath: new URL(config.baseUrl).pathname || '/',
-  }));
-  html = injectDemoBanner(html);
-  res.send(html);
-});
+    maxFileSize: config.maxFileSize,
+    uploadConcurrency: config.uploadConcurrency,
+    uploadChunkBytes: config.uploadChunkMb * 1024 * 1024,
+  };
+}
 
 // Login route
 app.get('/login.html', (req, res) => {
@@ -173,13 +183,7 @@ app.use((req, res, next) => {
     let html = fs.readFileSync(filePath, 'utf8');
     html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
     if (req.path === '/index.html' || req.path === 'index.html') {
-      html = html.replace('{{APP_CONFIG}}', JSON.stringify({
-        autoUpload: config.autoUpload,
-        maxRetries: config.clientMaxRetries,
-        showFileList: config.showFileList,
-        pinEnabled: Boolean(config.pin),
-        basePath: new URL(config.baseUrl).pathname || '/',
-      }));
+      html = html.replace('{{APP_CONFIG}}', JSON.stringify(indexAppConfig()));
     }
     // Ensure baseUrl has a trailing slash
     const baseUrlWithSlash = config.baseUrl.endsWith('/') ? config.baseUrl : config.baseUrl + '/';
