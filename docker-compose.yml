@@ -5,8 +5,9 @@ services:
         restart: unless-stopped
         ports:
             - 3000:3000
-        volumes:
+    volumes:
             - ./uploads:/app/uploads
+        # Do not set user: here. The image starts as root, chowns the volume, then drops to node.
         environment:
             UPLOAD_DIR: /app/uploads
             NODE_ENV: production

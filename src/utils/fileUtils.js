@@ -82,6 +82,13 @@ async function ensureDirectoryExists(directoryPath) {
     logger.success(`Directory is writable: ${directoryPath}`);
   } catch (err) {
     logger.error(`Directory error: ${err.message}`);
+    if (err.code === 'EACCES') {
+      logger.error(
+        `Upload directory is not writable. Bind-mounted volumes are often owned by root. ` +
+          `Use the latest image (entrypoint fixes this) or chown the host folder to UID 1000: ` +
+          `chown -R 1000:1000 ${directoryPath}`,
+      );
+    }
     throw new Error(`Failed to access or create directory: ${directoryPath}`);
   }
 }

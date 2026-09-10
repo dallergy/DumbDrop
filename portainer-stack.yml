@@ -15,6 +15,7 @@ services:
       - "3000:3000"
     volumes:
       - dumbdrop_uploads:/app/uploads
+    # Do not set user:. The image chowns this volume, then drops to node.
     environment:
       UPLOAD_DIR: /app/uploads
       NODE_ENV: production

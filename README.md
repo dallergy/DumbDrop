@@ -73,7 +73,7 @@ docker compose up -d
 2. Upload a File - It'll show up in ./uploads
 3. Rejoice in the glory of your dumb uploads
 
-> **Note:** The `UPLOAD_DIR` environment variable is now explicitly set to `/app/uploads` in the container. The Dockerfile only creates the `uploads` directory, not `local_uploads`. The host directory `./uploads` is mounted to `/app/uploads` for persistent storage.
+> **Note:** The `UPLOAD_DIR` environment variable is now explicitly set to `/app/uploads` in the container. The container starts as root just long enough to make that folder writable (bind mounts and Portainer volumes are usually root-owned), then drops to the unprivileged `node` user. Do not set `user:` in compose unless that user can already write the volume.
 
 ### Option 2b: Portainer stack (copy/paste)
 
