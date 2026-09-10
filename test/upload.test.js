@@ -92,6 +92,18 @@ async function makeRequest(options, body = null) {
 }
 
 describe('Upload API Tests', () => {
+  describe('GET /health', () => {
+    it('should report ok without authentication', async () => {
+      const response = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: '/health',
+        method: 'GET',
+      });
+      assert.strictEqual(response.status, 200);
+      assert.strictEqual(response.data.status, 'ok');
+    });
+  });
   describe('POST /api/upload/init', () => {
     it('should initialize a new upload', async () => {
       const response = await makeRequest({
@@ -197,7 +209,47 @@ describe('Upload API Tests', () => {
       assert.strictEqual(chunkResponse.status, 200);
       assert.ok(chunkResponse.data.bytesReceived > 0);
     });
-    
+
+    it('should accept large chunks and ignore duplicate offsets', async () => {
+      const payload = Buffer.alloc(2 * 1024 * 1024, 7);
+      const initResponse = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: '/api/upload/init',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }, {
+        filename: 'large-chunk.bin',
+        fileSize: payload.length,
+      });
+
+      const { uploadId } = initResponse.data;
+      const firstHalf = payload.subarray(0, payload.length / 2);
+      const sendChunk = (body, offset) => makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: `/api/upload/chunk/${uploadId}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-Chunk-Offset': String(offset),
+        },
+      }, body);
+
+      const first = await sendChunk(firstHalf, 0);
+      assert.strictEqual(first.status, 200);
+      assert.strictEqual(first.data.bytesReceived, firstHalf.length);
+
+      const duplicate = await sendChunk(firstHalf, 0);
+      assert.strictEqual(duplicate.status, 200);
+      assert.strictEqual(duplicate.data.bytesReceived, firstHalf.length);
+
+      const rest = await sendChunk(payload.subarray(firstHalf.length), firstHalf.length);
+      assert.strictEqual(rest.status, 200);
+      assert.strictEqual(rest.data.bytesReceived, payload.length);
+      assert.strictEqual(rest.data.progress, 100);
+    });
+
     it('should reject chunks for invalid uploadId', async () => {
       const chunk = Buffer.from('Test data');
       const response = await makeRequest({
@@ -249,7 +301,7 @@ describe('Upload API Tests', () => {
   
   describe('Batch uploads', () => {
     it('should handle multiple files with same batch ID', async () => {
-      const batchId = `batch-${crypto.randomBytes(4).toString('hex')}`;
+      const batchId = `${Date.now()}-${crypto.randomBytes(5).toString('hex').slice(0, 9)}`;
       
       // Initialize first file
       const file1Response = await makeRequest({

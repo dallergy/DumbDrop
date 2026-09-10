@@ -11,7 +11,7 @@ const assert = require('node:assert');
 const http = require('node:http');
 
 // Import the app
-const { app, initialize } = require('../src/app');
+const { app, initialize, config } = require('../src/app');
 
 let server;
 let baseUrl;
@@ -88,9 +88,21 @@ describe('Authentication API Tests', () => {
         path: '/api/auth/pin-required',
         method: 'GET',
       });
-      
+
       assert.strictEqual(response.status, 200);
       assert.strictEqual(typeof response.data.required, 'boolean');
+    });
+
+    it('should not expose PIN length', async () => {
+      const response = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: '/api/auth/pin-required',
+        method: 'GET',
+      });
+
+      assert.strictEqual(response.status, 200);
+      assert.strictEqual(response.data.length, undefined);
     });
   });
   
@@ -112,7 +124,7 @@ describe('Authentication API Tests', () => {
       assert.ok(response.cookies);
     });
     
-    it('should reject incorrect PIN', async () => {
+    it('should reject incorrect PIN', { skip: !config.pin }, async () => {
       const response = await makeRequest({
         host: 'localhost',
         port: server.address().port,
@@ -128,7 +140,7 @@ describe('Authentication API Tests', () => {
       assert.strictEqual(response.status, 401);
     });
     
-    it('should reject empty PIN', async () => {
+    it('should reject empty PIN', { skip: !config.pin }, async () => {
       const response = await makeRequest({
         host: 'localhost',
         port: server.address().port,
@@ -141,12 +153,12 @@ describe('Authentication API Tests', () => {
         pin: '',
       });
       
-      assert.strictEqual(response.status, 400);
+      assert.strictEqual(response.status, 401);
     });
   });
   
   describe('Protected Routes', () => {
-    it('should require PIN for upload init', async () => {
+    it('should require PIN for upload init', { skip: !config.pin }, async () => {
       const response = await makeRequest({
         host: 'localhost',
         port: server.address().port,

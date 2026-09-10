@@ -26,6 +26,13 @@ const folderMappings = new Map();
 const batchActivity = new Map();
 
 const BATCH_TIMEOUT = 30 * 60 * 1000; // 30 minutes for batch/folderMapping cleanup
+// 32MB is large enough for gigabit LAN without buffering a whole file in RAM
+const MAX_CHUNK_BYTES = 32 * 1024 * 1024;
+const META_FLUSH_INTERVAL_MS = 2000;
+const META_FLUSH_BYTES = 16 * 1024 * 1024;
+// Keep partial-file handles open across chunks to avoid open/close + fsync per MB
+const openHandles = new Map();
+const metadataCache = new Map();
 
 // --- Helper Functions for Metadata ---
 
@@ -57,6 +64,7 @@ async function writeUploadMetadata(uploadId, metadata) {
   const tempMetaPath = `${metaFilePath}.${crypto.randomBytes(4).toString('hex')}.tmp`;
   try {
     // Write atomically if possible (write to temp then rename) for more safety
+    await fs.mkdir(METADATA_DIR, { recursive: true });
     await fs.writeFile(tempMetaPath, JSON.stringify(metadata, null, 2));
     await fs.rename(tempMetaPath, metaFilePath);
   } catch (err) {
@@ -65,6 +73,76 @@ async function writeUploadMetadata(uploadId, metadata) {
     try { await fs.unlink(tempMetaPath); } catch {/* ignore */}
     throw err;
   }
+}
+
+function publicErrorDetails(err) {
+  return config.nodeEnv === 'development' ? err.message : undefined;
+}
+
+function parseChunkOffset(req, fallback) {
+  const header = req.headers['x-chunk-offset'] || req.headers['content-range'];
+  if (!header) return fallback;
+  if (typeof header === 'string' && header.toLowerCase().startsWith('bytes ')) {
+    const start = Number(header.slice(6).split('-')[0]);
+    return Number.isFinite(start) && start >= 0 ? start : fallback;
+  }
+  const offset = Number(header);
+  return Number.isFinite(offset) && offset >= 0 ? offset : fallback;
+}
+
+async function getFileHandle(uploadId, partialFilePath) {
+  const existing = openHandles.get(uploadId);
+  if (existing) {
+    existing.lastUsed = Date.now();
+    return existing.handle;
+  }
+  const handle = await fs.open(partialFilePath, 'r+');
+  openHandles.set(uploadId, { handle, lastUsed: Date.now() });
+  return handle;
+}
+
+async function closeFileHandle(uploadId) {
+  const existing = openHandles.get(uploadId);
+  if (!existing) return;
+  openHandles.delete(uploadId);
+  try {
+    await existing.handle.close();
+  } catch (err) {
+    if (err.code !== 'ERR_INVALID_ARG_VALUE') {
+      logger.debug(`Handle close for ${uploadId}: ${err.message}`);
+    }
+  }
+}
+
+async function closeAllFileHandles() {
+  const ids = [...openHandles.keys()];
+  await Promise.all(ids.map((id) => closeFileHandle(id)));
+}
+
+async function getCachedMetadata(uploadId) {
+  if (metadataCache.has(uploadId)) {
+    return metadataCache.get(uploadId);
+  }
+  const metadata = await readUploadMetadata(uploadId);
+  if (metadata) metadataCache.set(uploadId, metadata);
+  return metadata;
+}
+
+async function persistMetadata(uploadId, metadata, { force = false } = {}) {
+  metadataCache.set(uploadId, metadata);
+  const last = metadata.lastPersistedAt || 0;
+  const bytesSince = metadata.bytesReceived - (metadata.lastPersistedBytes || 0);
+  if (!force && Date.now() - last < META_FLUSH_INTERVAL_MS && bytesSince < META_FLUSH_BYTES) {
+    return;
+  }
+  metadata.lastPersistedAt = Date.now();
+  metadata.lastPersistedBytes = metadata.bytesReceived;
+  await writeUploadMetadata(uploadId, metadata);
+}
+
+async function forgetUpload(uploadId) {
+  metadataCache.delete(uploadId);
+  await closeFileHandle(uploadId);
 }
 
 async function deleteUploadMetadata(uploadId) {
@@ -277,7 +355,12 @@ router.post('/init', async (req, res) => {
     };
 
     await writeUploadMetadata(uploadId, metadata);
+    metadataCache.set(uploadId, metadata);
     logger.info(`Initialized persistent upload: ${uploadId} for ${safeFilename} -> ${finalFilePath}`);
+
+    if (size > 0) {
+      await fs.writeFile(partialFilePath, '');
+    }
 
     // --- Handle Zero-Byte Files --- // (Important: Handle *after* metadata potentially exists)
     if (size === 0) {
@@ -285,6 +368,7 @@ router.post('/init', async (req, res) => {
         await fs.writeFile(finalFilePath, ''); // Create the empty file
         logger.success(`Completed zero-byte file upload: ${metadata.originalFilename} as ${finalFilePath}`);
         await deleteUploadMetadata(uploadId); // Clean up metadata since it's done
+        metadataCache.delete(uploadId);
         sendNotification(metadata.originalFilename, 0, config);
       } catch (writeErr) {
         logger.error(`Failed to create zero-byte file ${finalFilePath}: ${writeErr.message}`);
@@ -297,153 +381,133 @@ router.post('/init', async (req, res) => {
 
   } catch (err) {
     logger.error(`Upload initialization failed: ${err.message} ${err.stack}`);
-    return res.status(500).json({ error: 'Failed to initialize upload', details: err.message });
+    return res.status(500).json({ error: 'Failed to initialize upload', details: publicErrorDetails(err) });
   }
 });
 
 // Upload chunk
-router.post('/chunk/:uploadId', express.raw({ 
-  limit: config.maxFileSize + (10 * 1024 * 1024), // Generous limit for raw body
-  type: 'application/octet-stream' 
+router.post('/chunk/:uploadId', express.raw({
+  limit: MAX_CHUNK_BYTES,
+  type: 'application/octet-stream'
 }), async (req, res) => {
-  // DEMO MODE CHECK
   if (isDemoMode()) {
     const { uploadId } = req.params;
     logger.debug(`[DEMO] Received chunk for ${uploadId}`);
-    // Fake progress - requires knowing file size which isn't easily available here in demo
-    const demoProgress = Math.min(100, Math.random() * 100); // Placeholder
+    const demoProgress = Math.min(100, Math.random() * 100);
     return res.json({ bytesReceived: 0, progress: demoProgress });
   }
 
   const { uploadId } = req.params;
   let chunk = req.body;
   let chunkSize = chunk.length;
-  const clientBatchId = req.headers['x-batch-id']; // Logged but not used directly here
+  const clientBatchId = req.headers['x-batch-id'];
 
   if (!chunkSize) return res.status(400).json({ error: 'Empty chunk received' });
-
-  let metadata;
-  let fileHandle;
+  if (chunkSize > MAX_CHUNK_BYTES) {
+    return res.status(413).json({ error: 'Chunk too large', limit: MAX_CHUNK_BYTES });
+  }
 
   try {
-    metadata = await readUploadMetadata(uploadId);
+    const metadata = await getCachedMetadata(uploadId);
 
     if (!metadata) {
-      logger.warn(`Upload metadata not found for chunk request: ${uploadId}. Client Batch ID: ${clientBatchId || 'none'}. Upload may be complete or cancelled.`);
-      // Check if the final file exists as a fallback for completed uploads
-      // This is a bit fragile, but handles cases where metadata was deleted slightly early
-      try {
-        // Need to guess the final path - THIS IS NOT ROBUST
-        // A better approach might be needed if this is common
-        // For now, just return 404
-        // await fs.access(potentialFinalPath);
-        // return res.json({ bytesReceived: fileSizeGuess, progress: 100 });
-        return res.status(404).json({ error: 'Upload session not found or already completed' });
-      } catch {
-        return res.status(404).json({ error: 'Upload session not found or already completed' });
-      }
+      logger.warn(`Upload metadata not found for chunk request: ${uploadId}. Client Batch ID: ${clientBatchId || 'none'}.`);
+      return res.status(404).json({ error: 'Upload session not found or already completed' });
     }
 
-    // Update batch activity using metadata's batchId
     if (metadata.batchId && isValidBatchId(metadata.batchId)) {
       batchActivity.set(metadata.batchId, Date.now());
     }
 
-    // --- Sanity Checks & Idempotency ---
     if (metadata.bytesReceived >= metadata.fileSize) {
-      logger.warn(`Received chunk for already completed upload ${uploadId} (${metadata.originalFilename}). Finalizing again if needed.`);
-      // Ensure finalization if possible, then return success
+      await forgetUpload(uploadId);
       try {
-        await fs.access(metadata.filePath); // Check if final file exists
-        logger.info(`Upload ${uploadId} already finalized at ${metadata.filePath}.`);
+        await fs.access(metadata.filePath);
       } catch {
-        // Final file doesn't exist, attempt rename
         try {
           await fs.rename(metadata.partialFilePath, metadata.filePath);
-          logger.info(`Finalized ${uploadId} on redundant chunk request (renamed ${metadata.partialFilePath} -> ${metadata.filePath}).`);
         } catch (renameErr) {
-          if (renameErr.code === 'ENOENT') {
-            logger.warn(`Partial file ${metadata.partialFilePath} missing during redundant chunk finalization for ${uploadId}.`);
-          } else {
+          if (renameErr.code !== 'ENOENT') {
             logger.error(`Error finalizing ${uploadId} on redundant chunk: ${renameErr.message}`);
           }
         }
       }
-      // Regardless of rename outcome, delete metadata if it still exists
       await deleteUploadMetadata(uploadId);
       return res.json({ bytesReceived: metadata.fileSize, progress: 100 });
     }
 
-    // Prevent writing beyond expected file size (simple protection)
-    if (metadata.bytesReceived + chunkSize > metadata.fileSize) {
-      logger.warn(`Chunk for ${uploadId} exceeds expected file size. Received ${metadata.bytesReceived + chunkSize}, expected ${metadata.fileSize}. Truncating chunk.`);
-      const bytesToWrite = metadata.fileSize - metadata.bytesReceived;
-      chunk = chunk.slice(0, bytesToWrite);
-      chunkSize = chunk.length;
-      if (chunkSize <= 0) { // If we already have exactly the right amount
-        logger.info(`Upload ${uploadId} already has expected bytes. Skipping write, proceeding to finalize.`);
-        // Skip write, proceed to finalization check below
-        metadata.bytesReceived = metadata.fileSize; // Ensure state is correct for finalization
-      } else {
-        logger.info(`Truncated chunk for ${uploadId} to ${chunkSize} bytes.`);
-      }
+    const offset = parseChunkOffset(req, metadata.bytesReceived);
+
+    if (offset > metadata.bytesReceived) {
+      return res.status(409).json({
+        error: 'Chunk offset gap',
+        bytesReceived: metadata.bytesReceived,
+        expectedOffset: metadata.bytesReceived
+      });
     }
 
-    // --- Write Chunk (Append Mode) --- // Only write if chunk has size after potential truncation
-    if (chunkSize > 0) {
-      fileHandle = await fs.open(metadata.partialFilePath, 'a');
-      const writeResult = await fileHandle.write(chunk);
-      await fileHandle.close(); // Close immediately
+    if (offset + chunkSize > metadata.fileSize) {
+      const bytesToWrite = metadata.fileSize - offset;
+      chunk = chunk.slice(0, bytesToWrite);
+      chunkSize = chunk.length;
+    }
 
+    if (offset + chunkSize <= metadata.bytesReceived) {
+      const progress = metadata.fileSize === 0 ? 100 :
+        Math.min(Math.round((metadata.bytesReceived / metadata.fileSize) * 100), 100);
+      return res.json({ bytesReceived: metadata.bytesReceived, progress });
+    }
+
+    const writeOffset = metadata.bytesReceived;
+    const skip = writeOffset - offset;
+    if (skip > 0) {
+      chunk = chunk.slice(skip);
+      chunkSize = chunk.length;
+    }
+
+    if (chunkSize > 0) {
+      const fileHandle = await getFileHandle(uploadId, metadata.partialFilePath);
+      const writeResult = await fileHandle.write(chunk, 0, chunkSize, writeOffset);
       if (writeResult.bytesWritten !== chunkSize) {
-        // This indicates a partial write, which is problematic.
-        logger.error(`Partial write for chunk ${uploadId}! Expected ${chunkSize}, wrote ${writeResult.bytesWritten}. Disk full?`);
-        // How to recover? Maybe revert bytesReceived? For now, throw.
+        logger.error(`Partial write for chunk ${uploadId}! Expected ${chunkSize}, wrote ${writeResult.bytesWritten}.`);
         throw new Error(`Failed to write full chunk for ${uploadId}`);
       }
       metadata.bytesReceived += writeResult.bytesWritten;
     }
 
-    // --- Update State --- (bytesReceived updated above or set if truncated to zero)
     const progress = metadata.fileSize === 0 ? 100 :
-      Math.min( Math.round((metadata.bytesReceived / metadata.fileSize) * 100), 100);
+      Math.min(Math.round((metadata.bytesReceived / metadata.fileSize) * 100), 100);
 
     logger.debug(`Chunk written for ${uploadId}: ${metadata.bytesReceived}/${metadata.fileSize} (${progress}%)`);
 
-    // --- Persist Updated Metadata (Before potential finalization) ---
-    await writeUploadMetadata(uploadId, metadata);
-
-    // --- Check for Completion --- // Now happens after metadata update
     if (metadata.bytesReceived >= metadata.fileSize) {
+      await persistMetadata(uploadId, metadata, { force: true });
+      await closeFileHandle(uploadId);
       logger.info(`Upload ${uploadId} (${metadata.originalFilename}) completed ${metadata.bytesReceived} bytes.`);
       try {
         await fs.rename(metadata.partialFilePath, metadata.filePath);
         logger.success(`Upload completed and finalized: ${metadata.originalFilename} as ${metadata.filePath} (${metadata.fileSize} bytes)`);
-        await deleteUploadMetadata(uploadId); // Clean up metadata file AFTER successful rename
+        await deleteUploadMetadata(uploadId);
+        metadataCache.delete(uploadId);
         sendNotification(metadata.originalFilename, metadata.fileSize, config);
       } catch (renameErr) {
         if (renameErr.code === 'ENOENT') {
-          logger.warn(`Partial file ${metadata.partialFilePath} not found during finalization for ${uploadId}. Assuming already finalized elsewhere.`);
-          // Attempt to delete metadata anyway if partial is gone
+          logger.warn(`Partial file ${metadata.partialFilePath} not found during finalization for ${uploadId}.`);
           await deleteUploadMetadata(uploadId).catch(() => {});
+          metadataCache.delete(uploadId);
         } else {
           logger.error(`CRITICAL: Failed to rename partial file ${metadata.partialFilePath} to ${metadata.filePath}: ${renameErr.message}`);
-          // Keep metadata and partial file for manual recovery.
-          // Return success to client as data is likely there, but log server issue.
         }
       }
+    } else {
+      await persistMetadata(uploadId, metadata);
     }
 
     res.json({ bytesReceived: metadata.bytesReceived, progress });
 
   } catch (err) {
-    // Ensure file handle is closed on error
-    if (fileHandle) {
-      await fileHandle.close().catch(closeErr => logger.error(`Error closing file handle for ${uploadId} after error: ${closeErr.message}`));
-    }
     logger.error(`Chunk upload failed for ${uploadId}: ${err.message} ${err.stack}`);
-    // Don't delete metadata on generic chunk errors, let client retry or cleanup handle stale files
-    res.status(500).json({ error: 'Failed to process chunk', details: err.message });
+    res.status(500).json({ error: 'Failed to process chunk', details: publicErrorDetails(err) });
   }
 });
 
@@ -462,6 +526,7 @@ router.post('/cancel/:uploadId', async (req, res) => {
     const metadata = await readUploadMetadata(uploadId);
 
     if (metadata) {
+      await forgetUpload(uploadId);
       // Delete partial file first
       try {
         await fs.unlink(metadata.partialFilePath);
@@ -489,6 +554,7 @@ module.exports = {
   router,
   startBatchCleanup,
   stopBatchCleanup,
+  closeAllFileHandles,
   // Export for testing if required
   readUploadMetadata,
   writeUploadMetadata,

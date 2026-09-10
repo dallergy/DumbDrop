@@ -18,7 +18,7 @@ module.exports = [
   prettierConfig,
   {
     files: ['**/*.js'],
-    ignores: ['public/service-worker.js'],
+    ignores: ['public/service-worker.js', 'public/js/**/*.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'commonjs',
@@ -57,6 +57,38 @@ module.exports = [
     },
   },
   {
+    files: ['public/js/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        window: 'readonly',
+        document: 'readonly',
+        navigator: 'readonly',
+        localStorage: 'readonly',
+        fetch: 'readonly',
+        File: 'readonly',
+        Blob: 'readonly',
+        AbortController: 'readonly',
+        CustomEvent: 'readonly',
+        URL: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        console: 'readonly',
+        Toastify: 'readonly',
+        alert: 'readonly',
+        confirm: 'readonly',
+        prompt: 'readonly',
+      },
+    },
+    rules: {
+      'n/no-unsupported-features/node-builtins': 'off',
+      'n/no-unsupported-features/es-syntax': 'off',
+      'n/no-missing-import': 'off',
+      'n/file-extension-in-import': 'off',
+    },
+  },
+  {
     files: ['public/service-worker.js'],
     languageOptions: {
       ecmaVersion: 2022,
@@ -74,4 +106,3 @@ module.exports = [
     },
   },
 ];
-

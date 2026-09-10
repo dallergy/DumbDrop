@@ -176,7 +176,7 @@ function sanitizeFilenameSafe(fileName) {
   // Step 2: Replace spaces and common separators with underscores
   baseName = baseName
     .replace(/\s+/g, '_') // Replace all whitespace with underscores
-    .replace(/[+\-\s]+/g, '_'); // Replace + and - with underscores
+    .replace(/\++/g, '_'); // Replace + with underscores; keep hyphens
 
   // Step 3: Remove or replace problematic characters
   baseName = baseName
@@ -299,7 +299,7 @@ function isPathWithinUploadDir(filePath, uploadDir, requireExists = false) {
     let realUploadDir;
     try {
       realUploadDir = fs.realpathSync(uploadDir);
-    } catch (err) {
+    } catch {
       logger.error(`Upload directory does not exist or is inaccessible: ${uploadDir}`);
       return false;
     }
@@ -315,7 +315,7 @@ function isPathWithinUploadDir(filePath, uploadDir, requireExists = false) {
       // File exists, resolve symlinks for security
       try {
         resolvedFilePath = fs.realpathSync(filePath);
-      } catch (err) {
+      } catch {
         logger.error(`Failed to resolve existing file path: ${filePath}`);
         return false;
       }

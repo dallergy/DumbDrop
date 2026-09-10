@@ -21,18 +21,13 @@ const createLimiter = (options) => {
  */
 const initUploadLimiter = createLimiter({
   windowMs: 60 * 1000, // 1 minute window
-  max: 30, // 30 upload jobs per minute
+  max: 180, // 3 new files/sec — enough for folders, still abuse-resistant
   message: { 
     error: 'Too many upload jobs started. Please wait before starting new uploads.' 
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Use secure IP extraction to prevent header spoofing
-  keyGenerator: (req) => getClientIp(req),
-  // Skip rate limiting for chunk uploads within an existing batch
-  skip: (req) => {
-    return req.headers['x-batch-id'] !== undefined;
-  }
+  keyGenerator: (req) => getClientIp(req)
 });
 
 /**
@@ -41,13 +36,12 @@ const initUploadLimiter = createLimiter({
  */
 const chunkUploadLimiter = createLimiter({
   windowMs: 60 * 1000, // 1 minute window
-  max: 300, // 300 chunks per minute (5 per second)
+  max: 1200, // high enough for large-file chunk streams (~20/sec)
   message: {
     error: 'Upload rate limit exceeded. Please wait before continuing.'
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Use secure IP extraction to prevent header spoofing
   keyGenerator: (req) => getClientIp(req)
 });
 

@@ -69,7 +69,8 @@ router.post('/verify-pin', (req, res) => {
         httpOnly: true,
         secure: req.secure || (BASE_URL.startsWith('https') && NODE_ENV === 'production'),
         sameSite: 'strict',
-        path: '/'
+        path: '/',
+        maxAge: 24 * 60 * 60 * 1000
       });
 
       logger.info(`Successful PIN verification from IP: ${ip}`);
@@ -99,8 +100,7 @@ router.post('/verify-pin', (req, res) => {
 router.get('/pin-required', (req, res) => {
   try {
     res.json({ 
-      required: !!config.pin,
-      length: config.pin ? config.pin.length : 0
+      required: !!config.pin
     });
   } catch (err) {
     logger.error(`PIN check error: ${err.message}`);

@@ -17,7 +17,7 @@ const logger = require('./utils/logger');
 const { ensureDirectoryExists } = require('./utils/fileUtils');
 const { getHelmetConfig, requirePin } = require('./middleware/security');
 const { safeCompare } = require('./utils/security');
-const { initUploadLimiter, pinVerifyLimiter, pinStatusLimiter, downloadLimiter } = require('./middleware/rateLimiter');
+const { initUploadLimiter, chunkUploadLimiter, pinVerifyLimiter, pinStatusLimiter, downloadLimiter } = require('./middleware/rateLimiter');
 const { injectDemoBanner, demoMiddleware } = require('./utils/demoMode');
 const { originValidationMiddleware, getCorsOptions } = require('./middleware/cors');
 
@@ -46,7 +46,7 @@ if (config.trustProxy) {
 // Middleware setup
 app.use(cors(getCorsOptions(BASE_URL)));
 app.use(cookieParser());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(helmet(getHelmetConfig()));
 
 // --- AUTHENTICATION MIDDLEWARE FOR ALL PROTECTED ROUTES ---
@@ -58,15 +58,16 @@ app.use((req, res, next) => {
     '/api/auth/logout',
     '/api/auth/verify-pin',
     '/api/auth/pin-required',
-    '/api/auth/pin-length',
-    '/pin-length',
-    '/verify-pin',
+    '/health',
+    '/api/health',
     '/config.js',
     '/assets/',
+    '/js/',
     '/styles.css',
     '/manifest.json',
     '/asset-manifest.json',
     '/toastify',
+    '/service-worker.js',
     '/share/',
     '/share.html',
     '/api/shares/',
@@ -87,14 +88,23 @@ app.use((req, res, next) => {
 const { router: uploadRouter } = require('./routes/upload');
 const fileRoutes = require('./routes/files');
 const authRoutes = require('./routes/auth');
-const { router: shareRoutes, cleanupExpiredShares } = require('./routes/shares');
+const { router: shareRoutes } = require('./routes/shares');
 
 // Use routes with appropriate middleware
 // Apply strict rate limiting to PIN verification, but more permissive to status checks
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
+
 app.use('/api/auth/pin-required', pinStatusLimiter);
 app.use('/api/auth/logout', pinStatusLimiter);
 app.use('/api/auth', pinVerifyLimiter, authRoutes);
-app.use('/api/upload', requirePin(config.pin), initUploadLimiter, uploadRouter);
+app.use('/api/upload/init', requirePin(config.pin), initUploadLimiter);
+app.use('/api/upload/chunk', requirePin(config.pin), chunkUploadLimiter);
+app.use('/api/upload', requirePin(config.pin), uploadRouter);
 app.use('/api/files/share', requirePin(config.pin), shareRoutes);
 app.use('/api/files/shares', requirePin(config.pin), shareRoutes);
 app.use('/api/files', requirePin(config.pin), downloadLimiter, fileRoutes);
@@ -107,7 +117,12 @@ app.use('/api/shares', (req, res, next) => {
 
 app.get('/share/:token', (req, res) => {
   let html = fs.readFileSync(path.join(__dirname, '../public', 'share.html'), 'utf8');
-  html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle).replace('{{SHARE_TOKEN}}', JSON.stringify(req.params.token));
+  html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
+  html = html.replace('{{SHARE_TOKEN}}', String(req.params.token).replace(/"/g, ''));
+  html = html.replace(/{{BASE_URL}}/g, config.baseUrl.endsWith('/') ? config.baseUrl : config.baseUrl + '/');
+  html = html.replace('{{APP_CONFIG}}', JSON.stringify({
+    basePath: new URL(config.baseUrl).pathname || '/',
+  }));
   res.send(html);
 });
 
@@ -120,9 +135,13 @@ app.get('/', (req, res) => {
 
   let html = fs.readFileSync(path.join(__dirname, '../public', 'index.html'), 'utf8');
   html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
-  html = html.replace('{{AUTO_UPLOAD}}', config.autoUpload.toString());
-  html = html.replace('{{MAX_RETRIES}}', config.clientMaxRetries.toString());
-  html = html.replace('{{SHOW_FILE_LIST}}', config.showFileList.toString());
+  html = html.replace('{{APP_CONFIG}}', JSON.stringify({
+    autoUpload: config.autoUpload,
+    maxRetries: config.clientMaxRetries,
+    showFileList: config.showFileList,
+    pinEnabled: Boolean(config.pin),
+    basePath: new URL(config.baseUrl).pathname || '/',
+  }));
   html = injectDemoBanner(html);
   res.send(html);
 });
@@ -136,6 +155,9 @@ app.get('/login.html', (req, res) => {
 
   let html = fs.readFileSync(path.join(__dirname, '../public', 'login.html'), 'utf8');
   html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
+  html = html.replace('{{APP_CONFIG}}', JSON.stringify({
+    basePath: new URL(config.baseUrl).pathname || '/',
+  }));
   html = injectDemoBanner(html);
   res.send(html);
 });
@@ -151,8 +173,13 @@ app.use((req, res, next) => {
     let html = fs.readFileSync(filePath, 'utf8');
     html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
     if (req.path === '/index.html' || req.path === 'index.html') {
-      html = html.replace('{{AUTO_UPLOAD}}', config.autoUpload.toString());
-      html = html.replace('{{MAX_RETRIES}}', config.clientMaxRetries.toString());
+      html = html.replace('{{APP_CONFIG}}', JSON.stringify({
+        autoUpload: config.autoUpload,
+        maxRetries: config.clientMaxRetries,
+        showFileList: config.showFileList,
+        pinEnabled: Boolean(config.pin),
+        basePath: new URL(config.baseUrl).pathname || '/',
+      }));
     }
     // Ensure baseUrl has a trailing slash
     const baseUrlWithSlash = config.baseUrl.endsWith('/') ? config.baseUrl : config.baseUrl + '/';

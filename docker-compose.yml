@@ -6,14 +6,15 @@ services:
         ports:
             - 3000:3000
         volumes:
-            - ./local_uploads:/app/uploads
+            - ./uploads:/app/uploads
         environment:
             UPLOAD_DIR: /app/uploads
             NODE_ENV: production
             PORT: 3000
             DUMBDROP_TITLE: DumbDrop
             MAX_FILE_SIZE: 1024
-            DUMBDROP_PIN: 123456
+            # Leave empty to disable PIN. Never ship a default PIN.
+            DUMBDROP_PIN: ""
             AUTO_UPLOAD: "true"
             SHOW_FILE_LIST: "true"
             BASE_URL: http://localhost:3000
