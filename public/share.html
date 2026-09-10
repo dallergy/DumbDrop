@@ -1,17 +1,19 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Shared item · {{SITE_TITLE}}</title>
   <meta name="color-scheme" content="light dark">
   <base href="{{BASE_URL}}">
+  <script src="js/theme-init.js"></script>
   <link rel="stylesheet" href="styles.css">
   <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
   <script type="application/json" id="app-config">{{APP_CONFIG}}</script>
   <script type="module" src="js/share.js"></script>
 </head>
 <body class="share-page" data-share-token="{{SHARE_TOKEN}}">
+  <div class="backdrop" aria-hidden="true"></div>
   <main class="share-shell">
     <section class="card share-card" aria-live="polite">
       <div class="brand-badge" id="typeBadge">Shared item</div>
