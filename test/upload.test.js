@@ -488,6 +488,27 @@ describe('Upload API Tests', () => {
       assert.strictEqual(file2Response.status, 200);
       assert.notStrictEqual(file1Response.data.uploadId, file2Response.data.uploadId);
     });
+
+    it('should map parallel inits of one folder batch to a single folder', async () => {
+      const batchId = `${Date.now()}-${crypto.randomBytes(5).toString('hex').slice(0, 9)}`;
+      const folder = `race-${crypto.randomBytes(3).toString('hex')}`;
+      const names = Array.from({ length: 8 }, (_, i) => `${folder}/file-${i}.txt`);
+
+      const responses = await Promise.all(names.map((filename) => makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: '/api/upload/init',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Batch-Id': batchId },
+      }, { filename, fileSize: 0 })));
+      responses.forEach((r) => assert.strictEqual(r.status, 200));
+
+      const created = (await fs.readdir(config.uploadDir)).filter((f) => f.startsWith(folder));
+      assert.deepStrictEqual(created, [folder], 'no "(1)", "(2)" sibling folders may be created');
+      const files = await fs.readdir(path.join(config.uploadDir, folder));
+      assert.strictEqual(files.length, names.length);
+      await fs.rm(path.join(config.uploadDir, folder), { recursive: true, force: true });
+    });
   });
 });
 

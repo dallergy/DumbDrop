@@ -23,6 +23,8 @@ const METADATA_DIR = path.join(config.uploadDir, '.metadata');
 // --- In-Memory Maps (Still useful for session-level data) ---
 // Store folder name mappings for batch uploads (avoids FS lookups during session)
 const folderMappings = new Map();
+// In-flight mapping resolutions, so parallel inits of one batch share a folder
+const folderMappingPending = new Map();
 // Store batch activity timestamps (for cleaning up stale batches/folder mappings)
 const batchActivity = new Map();
 
@@ -117,6 +119,39 @@ function ensureRanges(metadata) {
   }
   if (typeof metadata.inflight !== 'number') metadata.inflight = 0;
   return metadata;
+}
+
+/**
+ * Resolve (and create) the on-disk folder for a batch's top-level folder.
+ * Parallel clients fire many inits at once; without a shared promise each
+ * one would race mkdir and scatter files across "folder (1)", "folder (2)"...
+ */
+function resolveBatchFolder(originalFolderName, batchId) {
+  const key = `${originalFolderName}-${batchId}`;
+  const known = folderMappings.get(key);
+  if (known) return Promise.resolve(known);
+  let pending = folderMappingPending.get(key);
+  if (pending) return pending;
+
+  pending = (async () => {
+    const baseFolderPath = path.join(config.uploadDir, originalFolderName);
+    await fs.mkdir(path.dirname(baseFolderPath), { recursive: true });
+    let newFolderName;
+    try {
+      await fs.mkdir(baseFolderPath, { recursive: false });
+      newFolderName = originalFolderName;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      const uniqueFolderPath = await getUniqueFolderPath(baseFolderPath);
+      newFolderName = path.basename(uniqueFolderPath);
+      logger.info(`Folder "${originalFolderName}" exists or conflict, using unique "${newFolderName}" for batch ${batchId}`);
+    }
+    folderMappings.set(key, newFolderName);
+    return newFolderName;
+  })().finally(() => folderMappingPending.delete(key));
+
+  folderMappingPending.set(key, pending);
+  return pending;
 }
 
 function progressOf(metadata) {
@@ -361,28 +396,7 @@ router.post('/init', async (req, res) => {
     const pathParts = safeFilename.split('/').filter(Boolean);
 
     if (pathParts.length > 1) {
-      const originalFolderName = pathParts[0];
-      let newFolderName = folderMappings.get(`${originalFolderName}-${batchId}`);
-      const baseFolderPath = path.join(config.uploadDir, newFolderName || originalFolderName);
-
-      if (!newFolderName) {
-        await fs.mkdir(path.dirname(baseFolderPath), { recursive: true });
-        try {
-          await fs.mkdir(baseFolderPath, { recursive: false });
-          newFolderName = originalFolderName;
-        } catch (err) {
-          if (err.code === 'EEXIST') {
-            const uniqueFolderPath = await getUniqueFolderPath(baseFolderPath);
-            newFolderName = path.basename(uniqueFolderPath);
-            logger.info(`Folder "${originalFolderName}" exists or conflict, using unique "${newFolderName}" for batch ${batchId}`);
-            await fs.mkdir(path.join(config.uploadDir, newFolderName), { recursive: true });
-          } else {
-            throw err;
-          }
-        }
-        folderMappings.set(`${originalFolderName}-${batchId}`, newFolderName);
-      }
-      pathParts[0] = newFolderName;
+      pathParts[0] = await resolveBatchFolder(pathParts[0], batchId);
       finalFilePath = path.join(config.uploadDir, ...pathParts);
       
       // Validate the updated path
