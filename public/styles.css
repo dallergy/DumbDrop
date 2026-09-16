@@ -1454,11 +1454,15 @@ body.app--library #sharesTab {
 body.app--library[data-view='files'] .search-field {
   display: flex;
 }
+body:not([data-view='files']) .search-field {
+  display: none !important;
+}
 body.app--library #overviewRow {
   display: grid;
 }
 
-body.app--library[data-view='shares'] #overviewRow {
+body.app--library[data-view='shares'] #overviewRow,
+body.app--library[data-view='upload'] #overviewRow {
   display: none;
 }
 
