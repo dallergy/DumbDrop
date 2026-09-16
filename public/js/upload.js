@@ -4,8 +4,15 @@
  */
 
 import {
-  formatFileSize, formatRate, formatMbps, formatDuration, escapeHtml,
-  generateBatchId, toast, readSetting, writeSetting,
+  formatFileSize,
+  formatRate,
+  formatMbps,
+  formatDuration,
+  escapeHtml,
+  generateBatchId,
+  toast,
+  readSetting,
+  writeSetting,
 } from './utils.js';
 import { TransferEngine, MAX_CONCURRENCY, sentOf } from './transfer-engine.js';
 
@@ -14,12 +21,16 @@ const CARD_LINGER_MS = 1800;
 const SPARK_W = 300;
 const SPARK_H = 56;
 
-const ICON_X = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+const ICON_X =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
 
 export function loadUploadSettings() {
   const cfg = window.APP_CONFIG || {};
   return {
-    concurrency: Math.min(MAX_CONCURRENCY, Math.max(1, readSetting('concurrency', cfg.uploadConcurrency || 4))),
+    concurrency: Math.min(
+      MAX_CONCURRENCY,
+      Math.max(1, readSetting('concurrency', cfg.uploadConcurrency || 4))
+    ),
     chunkBytes: readSetting('chunkBytes', cfg.uploadChunkBytes || 0),
   };
 }
@@ -73,7 +84,8 @@ export class UploadQueue {
 
   bindControls() {
     this.el.pause?.addEventListener('click', () => {
-      if (this.engine.paused) this.engine.resume(); else this.engine.pause();
+      if (this.engine.paused) this.engine.resume();
+      else this.engine.pause();
     });
     this.el.cancelAll?.addEventListener('click', () => this.engine.cancelAll());
     this.el.clear?.addEventListener('click', () => this.clearFinished());
@@ -122,6 +134,7 @@ export class UploadQueue {
     }
     this.staged = [...this.staged, ...files];
     this.renderQueue();
+    toast(`Queued ${files.length} file${files.length === 1 ? '' : 's'}. Click Upload to send.`);
   }
 
   clear() {
@@ -141,6 +154,7 @@ export class UploadQueue {
     this.el.panel.hidden = false;
     this.el.panel.classList.remove('is-finished');
     this.el.clear.hidden = true;
+    window.dispatchEvent(new CustomEvent('dumbdrop:upload-started'));
     this.engine.add(files, generateBatchId());
     this.engine.start();
   }
@@ -168,6 +182,10 @@ export class UploadQueue {
       frag.appendChild(more);
     }
     queue.appendChild(frag);
+    const summary = document.getElementById('queueSummary');
+    if (summary) {
+      summary.textContent = `${this.staged.length} file${this.staged.length === 1 ? '' : 's'} · ${formatFileSize(total)} still on this device`;
+    }
     uploadButton.hidden = false;
     uploadButton.textContent = `Upload ${this.staged.length} file${this.staged.length === 1 ? '' : 's'} · ${formatFileSize(total)}`;
   }
@@ -177,6 +195,17 @@ export class UploadQueue {
   render(snapshot) {
     const s = snapshot;
     const { el } = this;
+    document.body.classList.toggle('transfer-open', !el.panel.hidden);
+    const pill = document.getElementById('statusPillText');
+    if (pill) {
+      pill.textContent = s.finished
+        ? s.filesFailed
+          ? 'Finished with errors'
+          : 'Uploads complete'
+        : s.paused
+          ? 'Paused'
+          : formatRate(s.rate);
+    }
     if (el.panel.hidden) return;
 
     const pct = s.totalBytes ? (s.sentBytes / s.totalBytes) * 100 : 0;
@@ -188,7 +217,11 @@ export class UploadQueue {
       ? `${formatMbps(s.averageRate)} avg · ${formatMbps(s.peakRate)} peak`
       : `${formatMbps(s.rate)} · ${formatMbps(s.peakRate)} peak`;
 
-    el.eta.textContent = s.finished ? formatDuration(s.elapsed) : (s.paused ? 'Paused' : formatDuration(s.eta));
+    el.eta.textContent = s.finished
+      ? formatDuration(s.elapsed)
+      : s.paused
+        ? 'Paused'
+        : formatDuration(s.eta);
     el.etaSub.textContent = s.finished ? 'total time' : `${formatFileSize(s.remainingBytes)} left`;
 
     el.moved.textContent = formatFileSize(s.sentBytes);
@@ -232,7 +265,10 @@ export class UploadQueue {
   renderSparkline(history, peak) {
     const { sparkLine, sparkFill } = this.el;
     if (!sparkLine || history.length < 2) {
-      if (sparkLine) { sparkLine.setAttribute('d', ''); sparkFill.setAttribute('d', ''); }
+      if (sparkLine) {
+        sparkLine.setAttribute('d', '');
+        sparkFill.setAttribute('d', '');
+      }
       return;
     }
     const max = Math.max(peak, ...history, 1);
@@ -250,7 +286,10 @@ export class UploadQueue {
   // ----- per-file cards -----
 
   syncCard(transfer) {
-    const visible = transfer.status === 'initializing' || transfer.status === 'uploading' || transfer.status === 'failed';
+    const visible =
+      transfer.status === 'initializing' ||
+      transfer.status === 'uploading' ||
+      transfer.status === 'failed';
     let card = this.cards.get(transfer.id);
     if (visible && !card) {
       card = this.createCard(transfer);
@@ -284,8 +323,12 @@ export class UploadQueue {
         <span class="transfer-bytes"></span>
       </div>`;
     el.querySelector('.transfer-name').textContent = transfer.name;
-    el.querySelector('.transfer-cancel').addEventListener('click', () => this.engine.cancel(transfer.id));
-    el.querySelector('.transfer-retry').addEventListener('click', () => this.engine.retry(transfer.id));
+    el.querySelector('.transfer-cancel').addEventListener('click', () =>
+      this.engine.cancel(transfer.id)
+    );
+    el.querySelector('.transfer-retry').addEventListener('click', () =>
+      this.engine.retry(transfer.id)
+    );
     return {
       el,
       bar: el.querySelector('.progress-bar'),
@@ -313,7 +356,8 @@ export class UploadQueue {
     };
     card.status.textContent = labels[transfer.status] || transfer.status;
     card.bytes.textContent = `${formatFileSize(sent)} / ${formatFileSize(transfer.size)}`;
-    card.cancel.hidden = transfer.status === 'done' || transfer.status === 'failed' || transfer.status === 'cancelled';
+    card.cancel.hidden =
+      transfer.status === 'done' || transfer.status === 'failed' || transfer.status === 'cancelled';
     card.retry.hidden = transfer.status !== 'failed';
   }
 
@@ -331,7 +375,7 @@ export class UploadQueue {
       ok
         ? `Uploaded ${snapshot.filesDone} file${snapshot.filesDone === 1 ? '' : 's'} at ${formatRate(snapshot.averageRate)}`
         : `${snapshot.filesDone} uploaded, ${snapshot.filesFailed} failed`,
-      ok,
+      ok
     );
     window.dispatchEvent(new CustomEvent('dumbdrop:uploads-finished'));
   }
@@ -341,5 +385,8 @@ export class UploadQueue {
     for (const id of [...this.cards.keys()]) this.removeCard(id);
     this.engine.reset();
     this.el.panel.hidden = true;
+    document.body.classList.remove('transfer-open');
+    const pill = document.getElementById('statusPillText');
+    if (pill) pill.textContent = 'Idle';
   }
 }

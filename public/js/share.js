@@ -4,6 +4,7 @@
 
 import { loadAppConfig, apiUrl } from './utils.js';
 import { initTheme } from './theme.js';
+import { fileGlyph } from './icons.js';
 
 initTheme();
 window.APP_CONFIG = { basePath: '/', ...loadAppConfig() };
@@ -18,13 +19,20 @@ function renderShareTree(items, container) {
     const row = document.createElement('li');
     row.className = 'share-tree-row';
     const label = document.createElement('div');
-    label.className = 'share-tree-label';
-    label.textContent = `${item.type === 'directory' ? '📁' : '📄'} ${item.name}${item.type === 'file' ? ` · ${item.formattedSize}` : ''}`;
+    label.className = 'share-tree-label file-cell';
+    const glyph = document.createElement('span');
+    glyph.className = `file-glyph${item.type === 'directory' ? ' is-dir' : ''}`;
+    glyph.innerHTML = fileGlyph(item);
+    const name = document.createElement('span');
+    name.textContent = item.type === 'file' ? `${item.name} · ${item.formattedSize}` : item.name;
+    label.append(glyph, name);
     row.appendChild(label);
     if (item.type === 'file') {
       const link = document.createElement('a');
       link.className = 'btn btn-outline btn-sm';
-      link.href = apiUrl(`/api/shares/${encodeURIComponent(token)}/file/${item.path.split('/').map(encodeURIComponent).join('/')}`);
+      link.href = apiUrl(
+        `/api/shares/${encodeURIComponent(token)}/file/${item.path.split('/').map(encodeURIComponent).join('/')}`
+      );
       link.textContent = 'Download';
       row.appendChild(link);
     }
@@ -50,7 +58,11 @@ async function load() {
 
   const isFolder = data.type === 'directory';
   document.getElementById('name').textContent = data.name;
-  document.getElementById('icon').textContent = isFolder ? '📁' : '📄';
+  document.getElementById('icon').innerHTML = fileGlyph({
+    type: isFolder ? 'directory' : 'file',
+    name: data.name,
+    extension: '',
+  });
   document.getElementById('typeBadge').textContent = isFolder ? 'Shared folder' : 'Shared file';
   document.getElementById('meta').textContent =
     `${isFolder ? 'Folder' : 'File'} · ${data.formattedSize}` +
@@ -65,8 +77,12 @@ async function load() {
   document.getElementById('auth').hidden = data.authenticated;
   document.getElementById('content').hidden = !data.authenticated;
   document.getElementById('download').hidden = !data.authenticated;
-  document.getElementById('download').href = apiUrl(`/api/shares/${encodeURIComponent(token)}/download`);
-  document.getElementById('download').textContent = isFolder ? 'Download folder (.zip)' : 'Download file';
+  document.getElementById('download').href = apiUrl(
+    `/api/shares/${encodeURIComponent(token)}/download`
+  );
+  document.getElementById('download').textContent = isFolder
+    ? 'Download folder (.zip)'
+    : 'Download file';
 
   const itemsRoot = document.getElementById('items');
   itemsRoot.replaceChildren();

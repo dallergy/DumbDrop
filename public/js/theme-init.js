@@ -10,7 +10,9 @@
     var resolved = preference === 'system' ? (dark ? 'dark' : 'light') : preference;
     document.documentElement.setAttribute('data-theme', resolved);
     document.documentElement.setAttribute('data-theme-pref', preference);
+    document.documentElement.style.colorScheme = resolved;
   } catch {
     document.documentElement.setAttribute('data-theme', 'light');
+    document.documentElement.style.colorScheme = 'light';
   }
 })();

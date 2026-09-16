@@ -1,19 +1,27 @@
 /**
- * DumbDrop client bootstrap: dropzone, paste, camera, queue, library.
+ * DumbDrop client bootstrap: shell navigation, dropzone, paste, camera, queue.
  */
 
-import { loadAppConfig, apiUrl, toast } from './utils.js';
-import { initTheme, cycleTheme, getThemePreference } from './theme.js';
+import { loadAppConfig, apiUrl, toast, initConfirmDialog } from './utils.js';
+import { initTheme, cycleTheme } from './theme.js';
 import { UploadQueue } from './upload.js';
 import { FileListManager, ShareLinksManager } from './file-list.js';
 
-window.APP_CONFIG = { autoUpload: false, maxRetries: 5, showFileList: false, pinEnabled: false, basePath: '/', ...loadAppConfig() };
+window.APP_CONFIG = {
+  autoUpload: false,
+  maxRetries: 5,
+  showFileList: false,
+  pinEnabled: false,
+  basePath: '/',
+  ...loadAppConfig(),
+};
 
 initTheme();
+initConfirmDialog();
 
 const queue = new UploadQueue();
 const fileListManager = new FileListManager();
-new ShareLinksManager();
+const shareLinksManager = new ShareLinksManager();
 
 window.fileListManager = fileListManager;
 
@@ -24,11 +32,59 @@ const cameraInput = document.getElementById('cameraInput');
 const overlay = document.getElementById('dropOverlay');
 const settingsToggle = document.getElementById('settingsToggle');
 const settingsPopover = document.getElementById('settingsPopover');
+const pageTitle = document.getElementById('pageTitle');
+const pageKicker = document.getElementById('pageKicker');
+const pageSub = document.getElementById('pageSub');
+const siteTitle = pageTitle?.textContent?.trim() || 'DumbDrop';
+
+const VIEW_COPY = {
+  files: {
+    kicker: 'Library',
+    title: 'Files',
+    sub: 'Browse folders, share links, and keep the drop tidy.',
+  },
+  shares: {
+    kicker: 'Access',
+    title: 'Share links',
+    sub: 'Anyone with a link can download until you revoke it.',
+  },
+  upload: {
+    kicker: 'Transfer',
+    title: siteTitle,
+    sub: 'Drop files. Share links. Saturate the pipe.',
+  },
+};
+
+export function setView(view) {
+  const next = VIEW_COPY[view] ? view : 'upload';
+  document.body.dataset.view = next;
+  document.querySelectorAll('.rail-btn[data-view]').forEach((btn) => {
+    const on = btn.dataset.view === next;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-current', on ? 'page' : 'false');
+  });
+  const copy = VIEW_COPY[next];
+  if (pageKicker) pageKicker.textContent = copy.kicker;
+  if (pageTitle) pageTitle.textContent = copy.title;
+  if (pageSub) pageSub.textContent = copy.sub;
+  shareLinksManager.showPane?.(next === 'shares' ? 'shares' : 'files');
+}
+
+if (window.APP_CONFIG.showFileList) {
+  document.body.classList.add('app--library');
+  setView('files');
+} else {
+  setView('upload');
+}
+
+document.querySelectorAll('.rail-btn[data-view]').forEach((btn) => {
+  btn.addEventListener('click', () => setView(btn.dataset.view));
+});
 
 document.getElementById('themeToggle')?.addEventListener('click', () => {
-  const next = cycleTheme();
-  document.getElementById('themeToggle').setAttribute('aria-label', `Theme: ${getThemePreference()}`);
-  toast(`Theme: ${next === 'dark' || next === 'light' ? next : 'system'}`, true);
+  const preference = cycleTheme();
+  document.getElementById('themeToggle').setAttribute('aria-label', `Theme: ${preference}`);
+  toast(`Theme: ${preference}`, true);
 });
 
 function setSettingsOpen(open) {
@@ -37,21 +93,48 @@ function setSettingsOpen(open) {
 }
 settingsToggle?.addEventListener('click', () => setSettingsOpen(settingsPopover.hidden));
 document.addEventListener('click', (e) => {
-  if (!settingsPopover.hidden && !settingsPopover.contains(e.target) && e.target !== settingsToggle && !settingsToggle.contains(e.target)) {
+  if (
+    !settingsPopover.hidden &&
+    !settingsPopover.contains(e.target) &&
+    e.target !== settingsToggle &&
+    !settingsToggle.contains(e.target)
+  ) {
     setSettingsOpen(false);
   }
 });
 
-document.getElementById('browseFilesBtn')?.addEventListener('click', () => fileInput.click());
-document.getElementById('browseFoldersBtn')?.addEventListener('click', () => folderInput.click());
+function openFiles() {
+  fileInput.click();
+}
+function openFolders() {
+  folderInput.click();
+}
+
+document.getElementById('browseFilesBtn')?.addEventListener('click', openFiles);
+document.getElementById('browseFoldersBtn')?.addEventListener('click', openFolders);
+document.getElementById('browseFilesBtnLibrary')?.addEventListener('click', openFiles);
+document.getElementById('browseFoldersBtnLibrary')?.addEventListener('click', openFolders);
 document.getElementById('cameraBtn')?.addEventListener('click', () => cameraInput.click());
+document.getElementById('cameraBtnLibrary')?.addEventListener('click', () => cameraInput.click());
 document.getElementById('uploadButton')?.addEventListener('click', () => queue.start());
-document.getElementById('createShareBtn')?.addEventListener('click', () => fileListManager.createShare());
-document.getElementById('copyShareBtn')?.addEventListener('click', () => fileListManager.copyShare());
-document.getElementById('downloadQrBtn')?.addEventListener('click', () => fileListManager.downloadShareQr());
-document.getElementById('closeShareBtn')?.addEventListener('click', () => fileListManager.closeShare());
-document.getElementById('cancelRenameBtn')?.addEventListener('click', () => fileListManager.cancelRename());
-document.getElementById('confirmRenameBtn')?.addEventListener('click', () => fileListManager.confirmRename());
+document
+  .getElementById('createShareBtn')
+  ?.addEventListener('click', () => fileListManager.createShare());
+document
+  .getElementById('copyShareBtn')
+  ?.addEventListener('click', () => fileListManager.copyShare());
+document
+  .getElementById('downloadQrBtn')
+  ?.addEventListener('click', () => fileListManager.downloadShareQr());
+document
+  .getElementById('closeShareBtn')
+  ?.addEventListener('click', () => fileListManager.closeShare());
+document
+  .getElementById('cancelRenameBtn')
+  ?.addEventListener('click', () => fileListManager.cancelRename());
+document
+  .getElementById('confirmRenameBtn')
+  ?.addEventListener('click', () => fileListManager.confirmRename());
 
 const logoutBtn = document.getElementById('logoutBtn');
 if (window.APP_CONFIG.pinEnabled && logoutBtn) {
@@ -115,11 +198,13 @@ document.addEventListener('paste', (e) => {
   if (!files.length) return;
   e.preventDefault();
   queue.addFiles(files);
-  toast(`Added ${files.length} pasted file${files.length === 1 ? '' : 's'}`);
 });
 
 window.addEventListener('dumbdrop:uploads-finished', () => {
   if (window.APP_CONFIG?.showFileList) fileListManager.loadFiles();
+});
+window.addEventListener('dumbdrop:upload-started', () => {
+  if (window.APP_CONFIG?.showFileList) setView('files');
 });
 
 document.getElementById('shareModal')?.addEventListener('click', (e) => {
@@ -160,9 +245,10 @@ async function getAllFileEntries(dataTransferItems) {
             type: raw.type,
             lastModified: raw.lastModified,
           });
-          const relativePath = rootFolderName && !fullPath.startsWith(rootFolderName)
-            ? `${rootFolderName}/${fullPath}`
-            : fullPath;
+          const relativePath =
+            rootFolderName && !fullPath.startsWith(rootFolderName)
+              ? `${rootFolderName}/${fullPath}`
+              : fullPath;
           Object.defineProperty(fileWithPath, 'webkitRelativePath', {
             value: relativePath,
             writable: false,
@@ -175,14 +261,15 @@ async function getAllFileEntries(dataTransferItems) {
       if (!path && !rootFolderName) rootFolderName = entry.name;
       const dirReader = entry.createReader();
       const entries = [];
-      const readNextBatch = () => new Promise((resolve, reject) => {
-        dirReader.readEntries((batch) => {
-          if (batch.length) {
-            entries.push(...batch);
-            readNextBatch().then(resolve, reject);
-          } else resolve();
-        }, reject);
-      });
+      const readNextBatch = () =>
+        new Promise((resolve, reject) => {
+          dirReader.readEntries((batch) => {
+            if (batch.length) {
+              entries.push(...batch);
+              readNextBatch().then(resolve, reject);
+            } else resolve();
+          }, reject);
+        });
       await readNextBatch();
       const dirPath = path ? `${path}/${entry.name}` : entry.name;
       for (const child of entries) {

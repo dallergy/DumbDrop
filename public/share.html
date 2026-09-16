@@ -1,46 +1,56 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Shared item · {{SITE_TITLE}}</title>
-  <meta name="color-scheme" content="light dark">
-  <base href="{{BASE_URL}}">
-  <script src="js/theme-init.js"></script>
-  <link rel="stylesheet" href="styles.css">
-  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
-  <script type="application/json" id="app-config">{{APP_CONFIG}}</script>
-  <script type="module" src="js/share.js"></script>
-</head>
-<body class="share-page" data-share-token="{{SHARE_TOKEN}}">
-  <div class="backdrop" aria-hidden="true"></div>
-  <main class="share-shell">
-    <section class="card share-card" aria-live="polite">
-      <div class="brand-badge" id="typeBadge">Shared item</div>
-      <div class="share-card-icon" id="icon" aria-hidden="true">🔗</div>
-      <h1 id="name">Opening shared item…</h1>
-      <p class="muted" id="meta"></p>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Shared item · {{SITE_TITLE}}</title>
+    <meta name="color-scheme" content="light dark" />
+    <base href="{{BASE_URL}}" />
+    <script src="js/theme-init.js"></script>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="icon" type="image/svg+xml" href="assets/icon.svg" />
+    <script type="application/json" id="app-config">
+      {{APP_CONFIG}}
+    </script>
+    <script type="module" src="js/share.js"></script>
+  </head>
+  <body class="share-page" data-share-token="{{SHARE_TOKEN}}">
+    <div class="backdrop" aria-hidden="true"></div>
+    <main class="share-shell">
+      <section class="card share-card" aria-live="polite">
+        <p class="kicker" id="typeBadge">Shared item</p>
+        <div class="share-card-icon" id="icon" aria-hidden="true"></div>
+        <h1 class="hero-title" id="name">Opening shared item…</h1>
+        <p class="muted" id="meta"></p>
 
-      <form id="auth" class="share-pin-form" hidden>
-        <label for="pin" class="muted">This link is PIN protected</label>
-        <div class="share-pin-row">
-          <input id="pin" class="input" type="password" inputmode="numeric" placeholder="Enter PIN" required autofocus>
-          <button type="submit" class="btn btn-primary">Unlock</button>
+        <form id="auth" class="share-pin-form" hidden>
+          <label for="pin" class="muted">This link is PIN protected</label>
+          <div class="share-pin-row">
+            <input
+              id="pin"
+              class="input"
+              type="password"
+              inputmode="numeric"
+              placeholder="Enter PIN"
+              required
+              autofocus
+            />
+            <button type="submit" class="btn btn-primary">Unlock</button>
+          </div>
+        </form>
+
+        <p id="error" class="error-message" role="alert"></p>
+
+        <div id="content" class="share-content" hidden>
+          <div class="share-qr-panel">
+            <img id="qrImage" class="share-qr-image" alt="QR code for this share link" />
+            <a id="downloadQr" class="btn btn-ghost btn-sm" href="#" download>Download QR PNG</a>
+          </div>
+          <div id="items" class="share-tree"></div>
+          <a id="download" class="btn btn-primary" hidden>Download</a>
         </div>
-      </form>
-
-      <p id="error" class="error-message" role="alert"></p>
-
-      <div id="content" class="share-content" hidden>
-        <div class="share-qr-panel">
-          <img id="qrImage" class="share-qr-image" alt="QR code for this share link">
-          <a id="downloadQr" class="btn btn-ghost btn-sm" href="#" download>Download QR PNG</a>
-        </div>
-        <div id="items" class="share-tree"></div>
-        <a id="download" class="btn btn-primary" hidden>Download</a>
-      </div>
-    </section>
-    <p class="muted share-footer">Powered by {{SITE_TITLE}}</p>
-  </main>
-</body>
+      </section>
+      <p class="muted share-footer">Powered by {{SITE_TITLE}}</p>
+    </main>
+  </body>
 </html>
