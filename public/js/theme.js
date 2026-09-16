@@ -16,8 +16,9 @@ export function applyTheme(preference = getThemePreference()) {
   const resolved = preference === 'system' ? systemTheme() : preference;
   document.documentElement.setAttribute('data-theme', resolved);
   document.documentElement.setAttribute('data-theme-pref', preference);
+  document.documentElement.style.colorScheme = resolved;
   localStorage.setItem(STORAGE_KEY, preference);
-  return resolved;
+  return preference;
 }
 
 export function cycleTheme() {

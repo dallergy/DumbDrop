@@ -134,6 +134,7 @@ export class UploadQueue {
     }
     this.staged = [...this.staged, ...files];
     this.renderQueue();
+    toast(`Queued ${files.length} file${files.length === 1 ? '' : 's'}. Click Upload to send.`);
   }
 
   clear() {
@@ -153,6 +154,7 @@ export class UploadQueue {
     this.el.panel.hidden = false;
     this.el.panel.classList.remove('is-finished');
     this.el.clear.hidden = true;
+    window.dispatchEvent(new CustomEvent('dumbdrop:upload-started'));
     this.engine.add(files, generateBatchId());
     this.engine.start();
   }
@@ -180,6 +182,10 @@ export class UploadQueue {
       frag.appendChild(more);
     }
     queue.appendChild(frag);
+    const summary = document.getElementById('queueSummary');
+    if (summary) {
+      summary.textContent = `${this.staged.length} file${this.staged.length === 1 ? '' : 's'} · ${formatFileSize(total)} still on this device`;
+    }
     uploadButton.hidden = false;
     uploadButton.textContent = `Upload ${this.staged.length} file${this.staged.length === 1 ? '' : 's'} · ${formatFileSize(total)}`;
   }

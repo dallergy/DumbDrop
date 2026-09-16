@@ -3,7 +3,7 @@
  */
 
 import { loadAppConfig, apiUrl, toast, initConfirmDialog } from './utils.js';
-import { initTheme, cycleTheme, getThemePreference } from './theme.js';
+import { initTheme, cycleTheme } from './theme.js';
 import { UploadQueue } from './upload.js';
 import { FileListManager, ShareLinksManager } from './file-list.js';
 
@@ -82,11 +82,9 @@ document.querySelectorAll('.rail-btn[data-view]').forEach((btn) => {
 });
 
 document.getElementById('themeToggle')?.addEventListener('click', () => {
-  const next = cycleTheme();
-  document
-    .getElementById('themeToggle')
-    .setAttribute('aria-label', `Theme: ${getThemePreference()}`);
-  toast(`Theme: ${next === 'dark' || next === 'light' ? next : 'system'}`, true);
+  const preference = cycleTheme();
+  document.getElementById('themeToggle').setAttribute('aria-label', `Theme: ${preference}`);
+  toast(`Theme: ${preference}`, true);
 });
 
 function setSettingsOpen(open) {
@@ -200,11 +198,13 @@ document.addEventListener('paste', (e) => {
   if (!files.length) return;
   e.preventDefault();
   queue.addFiles(files);
-  toast(`Added ${files.length} pasted file${files.length === 1 ? '' : 's'}`);
 });
 
 window.addEventListener('dumbdrop:uploads-finished', () => {
   if (window.APP_CONFIG?.showFileList) fileListManager.loadFiles();
+});
+window.addEventListener('dumbdrop:upload-started', () => {
+  if (window.APP_CONFIG?.showFileList) setView('files');
 });
 
 document.getElementById('shareModal')?.addEventListener('click', (e) => {

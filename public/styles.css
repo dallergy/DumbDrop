@@ -71,8 +71,27 @@ body {
   font-family: var(--font);
   background: var(--background);
   color: var(--foreground);
+  color-scheme: light;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+html[data-theme='dark'],
+html[data-theme='dark'] body {
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --background: oklch(0.975 0.004 155);
+  --foreground: oklch(0.2 0.02 155);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.02 155);
+  --muted: oklch(0.96 0.008 155);
+  --muted-foreground: oklch(0.45 0.02 155);
+  --border: oklch(0.9 0.01 155);
+  --input: oklch(0.9 0.01 155);
+  --rail: oklch(0.99 0.004 155);
+  --dock: oklch(1 0 0 / 0.94);
 }
 
 body {
@@ -550,6 +569,23 @@ body.transfer-open .workspace {
 
 .queue-dock:not(:has(.queue-item)) {
   display: none;
+}
+
+.queue-dock:has(.queue-item) {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem 0.95rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.queue-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
 }
 
 .queue-list {
@@ -1395,6 +1431,10 @@ input[type='range'] {
 
 body[data-view='files'] #uploadHero,
 body[data-view='shares'] #uploadHero {
+  display: none;
+}
+
+body[data-view='upload']:has(.queue-item) .drop-card {
   display: none;
 }
 
