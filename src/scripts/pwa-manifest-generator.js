@@ -36,8 +36,8 @@ function generatePWAManifest() {
       description: "A simple file upload application",
       start_url: "/",
       display: "standalone",
-      background_color: "#ffffff",
-      theme_color: "#000000",
+      background_color: "#0b1210",
+      theme_color: "#3ee0a0",
       icons: [
         {
           src: "/assets/icon.png",

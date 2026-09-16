@@ -64,7 +64,9 @@ export function readSetting(key, fallback) {
 export function writeSetting(key, value) {
   try {
     localStorage.setItem(`dumbdrop:${key}`, JSON.stringify(value));
-  } catch { /* storage unavailable (private mode); keep in-memory value */ }
+  } catch {
+    /* storage unavailable (private mode); keep in-memory value */
+  }
 }
 
 export function escapeHtml(text) {
@@ -88,12 +90,54 @@ export function toast(text, ok = true) {
     gravity: 'bottom',
     position: 'right',
     style: {
-      background: ok ? 'oklch(0.45 0.15 155)' : 'oklch(0.55 0.2 25)',
+      background: ok ? 'oklch(0.42 0.12 155)' : 'oklch(0.5 0.18 25)',
       color: '#fff',
       borderRadius: '10px',
       boxShadow: '0 8px 24px rgba(0,0,0,.18)',
     },
   }).showToast();
+}
+
+let confirmResolver = null;
+
+/**
+ * Promise-based confirm dialog. Falls back to window.confirm if markup is missing.
+ */
+export function askConfirm({
+  title = 'Are you sure?',
+  message,
+  ok = 'Delete',
+  danger = true,
+} = {}) {
+  const modal = document.getElementById('confirmModal');
+  if (!modal) return Promise.resolve(window.confirm(message || title));
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmMessage').textContent = message || '';
+  const okBtn = document.getElementById('confirmOk');
+  okBtn.textContent = ok;
+  okBtn.className = danger ? 'btn btn-destructive' : 'btn btn-primary';
+  modal.classList.add('open');
+  return new Promise((resolve) => {
+    confirmResolver = resolve;
+  });
+}
+
+export function initConfirmDialog() {
+  const modal = document.getElementById('confirmModal');
+  if (!modal) return;
+  const finish = (value) => {
+    modal.classList.remove('open');
+    if (confirmResolver) confirmResolver(value);
+    confirmResolver = null;
+  };
+  document.getElementById('confirmCancel')?.addEventListener('click', () => finish(false));
+  document.getElementById('confirmOk')?.addEventListener('click', () => finish(true));
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) finish(false);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal.classList.contains('open')) finish(false);
+  });
 }
 
 export async function runPool(items, limit, worker) {
