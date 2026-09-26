@@ -2,9 +2,27 @@
 
 A stupid simple file upload application that provides a clean, modern interface for dragging and dropping files. Built with Node.js and vanilla JavaScript.
 
-![DumbDrop](https://github.com/user-attachments/assets/1b909d26-9ead-4dc7-85bc-8bfda0d366c1)
+DumbDrop+ is a fork of [DumbDrop](https://github.com/dumbwareio/dumbdrop) by DumbWare.io that adds features (share links with QR codes, folder browsing, parallel uploads) and a refreshed, minimal UI.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/files-dark.png">
+  <img alt="DumbDrop+ file library" src="docs/images/files-light.png">
+</picture>
 
 No auth (unless you want it now!), no storage, no nothing. Just a simple file uploader to drop dumb files into a dumb folder.
+
+### Screenshots
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/upload-dark.png">
+  <img alt="Uploading with the live transfer tray" src="docs/images/upload-light.png">
+</picture>
+
+<p align="center">
+  <img alt="File library on mobile" src="docs/images/mobile-dark.png" width="280">
+  &nbsp;&nbsp;
+  <img alt="Public share page" src="docs/images/share-mobile-dark.png" width="280">
+</p>
 
 ## Table of Contents
 
@@ -485,4 +503,4 @@ Got an idea? [Open an issue](https://github.com/dallergy/DumbDrop/issues) or [su
 
 ---
 
-Maintained fork of [DumbDrop](https://github.com/dumbwareio/dumbdrop) by [DumbWare.io](https://dumbware.io), cause I needed some extra features
+Maintained fork of [DumbDrop](https://github.com/dumbwareio/dumbdrop) by [DumbWare.io](https://dumbware.io), built to add extra features and a refreshed UI.

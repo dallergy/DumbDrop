@@ -219,9 +219,9 @@ export class UploadQueue {
     el.totalBar.classList.toggle('is-active', s.running && !s.paused && !s.finished);
 
     el.speed.textContent = formatRate(s.finished ? s.averageRate : s.rate);
-    el.speedBits.textContent = s.finished
-      ? `${formatMbps(s.averageRate)} avg · ${formatMbps(s.peakRate)} peak`
-      : `${formatMbps(s.rate)} · ${formatMbps(s.peakRate)} peak`;
+    // Peak lives in the tooltip so the line fits the tray without truncating.
+    el.speedBits.textContent = s.finished ? `${formatMbps(s.averageRate)} avg` : formatMbps(s.rate);
+    el.speedBits.title = `Peak ${formatMbps(s.peakRate)}`;
 
     el.eta.textContent = s.finished
       ? formatDuration(s.elapsed)
