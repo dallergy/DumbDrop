@@ -9,7 +9,7 @@ No auth (unless you want it now!), no storage, no nothing. Just a simple file up
 ## Table of Contents
 
 - [Quick Start](#quick-start)
-- [Production Deployment with Docker](#production-deployment-with-docker)
+- [Publish your Docker image](#publish-your-docker-image)
 - [Local Development (Recommended Quick Start)](LOCAL_DEVELOPMENT.md)
 - [Features](#features)
 - [Configuration](#configuration)
@@ -17,6 +17,7 @@ No auth (unless you want it now!), no storage, no nothing. Just a simple file up
 - [Technical Details](#technical-details)
 - [Demo Mode](demo.md)
 - [Contributing](#contributing)
+- [Ideas & Feedback](#ideas--feedback)
 - [License](#license)
 
 ## Quick Start
@@ -474,17 +475,14 @@ model per-connection congestion control.
 
 See [Local Development (Recommended Quick Start)](LOCAL_DEVELOPMENT.md) for local setup and guidelines.
 
-## Support the Project
+## Ideas & Feedback
 
-<a href="https://www.buymeacoffee.com/dumbware" target="_blank">
-  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="60">
-</a>
+Got an idea? [Open an issue](https://github.com/dallergy/DumbDrop/issues) or [submit a PR](https://github.com/dallergy/DumbDrop/pulls).
+
+## License
+
+[GPL-3.0](LICENSE)
 
 ---
 
-Made with ❤️ by [DumbWare.io](https://dumbware.io)
-
-## Future Features
-
-- Camera Upload for Mobile
-  > Got an idea? [Open an issue](https://github.com/dumbwareio/dumbdrop/issues) or [submit a PR](https://github.com/dumbwareio/dumbdrop/pulls)
+Maintained fork of [DumbDrop](https://github.com/dumbwareio/dumbdrop) by [DumbWare.io](https://dumbware.io), whose original project is now archived.
