@@ -2,14 +2,14 @@
  * Public share landing page.
  */
 
-import { loadAppConfig, apiUrl } from './utils.js';
+import { loadAppConfig, apiUrl, formatFileSize } from './utils.js';
 import { initTheme } from './theme.js';
 import { fileGlyph } from './icons.js';
 
 initTheme();
 window.APP_CONFIG = { basePath: '/', ...loadAppConfig() };
 
-const token = document.body.dataset.shareToken || '';
+const token = document.getElementById('shareRoot')?.dataset.shareToken || '';
 
 function renderShareTree(items, container) {
   if (!items?.length) return;
@@ -24,16 +24,21 @@ function renderShareTree(items, container) {
     glyph.className = `file-glyph${item.type === 'directory' ? ' is-dir' : ''}`;
     glyph.innerHTML = fileGlyph(item);
     const name = document.createElement('span');
-    name.textContent = item.type === 'file' ? `${item.name} · ${item.formattedSize}` : item.name;
+    name.textContent =
+      item.type === 'file' ? `${item.name} · ${formatFileSize(item.size)}` : item.name;
+    name.title = item.name;
     label.append(glyph, name);
     row.appendChild(label);
     if (item.type === 'file') {
       const link = document.createElement('a');
-      link.className = 'btn btn-outline btn-sm';
+      link.className = 'btn btn-ghost btn-icon btn-sm';
+      link.setAttribute('aria-label', `Download ${item.name}`);
+      link.title = `Download ${item.name}`;
       link.href = apiUrl(
         `/api/shares/${encodeURIComponent(token)}/file/${item.path.split('/').map(encodeURIComponent).join('/')}`
       );
-      link.textContent = 'Download';
+      link.innerHTML =
+        '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M20 15v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-4"/></svg>';
       row.appendChild(link);
     }
     if (item.children?.length) {
@@ -51,22 +56,30 @@ async function load() {
   const response = await fetch(apiUrl(`/api/shares/${encodeURIComponent(token)}`));
   const data = await response.json();
   if (!response.ok) {
-    document.getElementById('name').textContent = 'Share unavailable';
-    document.getElementById('error').textContent = data.error;
+    document.getElementById('name').textContent = 'Link unavailable';
+    document.getElementById('typeBadge').textContent = 'Shared with you';
+    document.getElementById('error').textContent =
+      data.error || 'This link has expired or was removed.';
     return;
   }
 
   const isFolder = data.type === 'directory';
   document.getElementById('name').textContent = data.name;
+  document.getElementById('icon').classList.toggle('is-dir', isFolder);
   document.getElementById('icon').innerHTML = fileGlyph({
     type: isFolder ? 'directory' : 'file',
     name: data.name,
     extension: '',
   });
-  document.getElementById('typeBadge').textContent = isFolder ? 'Shared folder' : 'Shared file';
+  document.title = `${data.name} · ${document.title.split(' · ').pop()}`;
+  document.getElementById('typeBadge').textContent = isFolder
+    ? 'Folder shared with you'
+    : 'File shared with you';
   document.getElementById('meta').textContent =
-    `${isFolder ? 'Folder' : 'File'} · ${data.formattedSize}` +
-    (data.expiresAt ? ` · Expires ${new Date(data.expiresAt).toLocaleString()}` : '');
+    formatFileSize(data.size) +
+    (data.expiresAt
+      ? ` · Expires ${new Date(data.expiresAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`
+      : '');
 
   const qrUrl = apiUrl(`/api/shares/${encodeURIComponent(token)}/qr.png`);
   document.getElementById('qrImage').src = qrUrl;
@@ -80,9 +93,7 @@ async function load() {
   document.getElementById('download').href = apiUrl(
     `/api/shares/${encodeURIComponent(token)}/download`
   );
-  document.getElementById('download').textContent = isFolder
-    ? 'Download folder (.zip)'
-    : 'Download file';
+  document.getElementById('downloadLabel').textContent = isFolder ? 'Download as ZIP' : 'Download';
 
   const itemsRoot = document.getElementById('items');
   itemsRoot.replaceChildren();

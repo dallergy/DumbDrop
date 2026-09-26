@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Shared item · {{SITE_TITLE}}</title>
+    <title>Shared with you · {{SITE_TITLE}}</title>
     <meta name="color-scheme" content="light dark" />
     <base href="{{BASE_URL}}" />
     <script src="js/theme-init.js"></script>
@@ -14,27 +14,22 @@
     </script>
     <script type="module" src="js/share.js"></script>
   </head>
-  <body class="share-page" data-share-token="{{SHARE_TOKEN}}">
-    <div class="backdrop" aria-hidden="true"></div>
-    <main class="share-shell">
+  <body>
+    <main class="center-shell" data-share-token="{{SHARE_TOKEN}}" id="shareRoot">
       <section class="card share-card" aria-live="polite">
-        <p class="kicker" id="typeBadge">Shared item</p>
-        <div class="share-card-icon" id="icon" aria-hidden="true"></div>
-        <h1 class="hero-title" id="name">Opening shared item…</h1>
-        <p class="muted" id="meta"></p>
+        <div class="share-head">
+          <div class="file-glyph file-glyph-lg" id="icon" aria-hidden="true"></div>
+          <div class="share-identity">
+            <p class="eyebrow" id="typeBadge">Shared with you</p>
+            <h1 class="share-name" id="name">Loading…</h1>
+            <p class="muted small" id="meta"></p>
+          </div>
+        </div>
 
-        <form id="auth" class="share-pin-form" hidden>
-          <label for="pin" class="muted">This link is PIN protected</label>
-          <div class="share-pin-row">
-            <input
-              id="pin"
-              class="input"
-              type="password"
-              inputmode="numeric"
-              placeholder="Enter PIN"
-              required
-              autofocus
-            />
+        <form id="auth" class="auth-form" hidden>
+          <label for="pin" class="muted small">This link is protected. Enter the PIN to continue.</label>
+          <div class="inline-form">
+            <input id="pin" class="input" type="password" inputmode="numeric" placeholder="PIN" required autofocus />
             <button type="submit" class="btn btn-primary">Unlock</button>
           </div>
         </form>
@@ -42,15 +37,25 @@
         <p id="error" class="error-message" role="alert"></p>
 
         <div id="content" class="share-content" hidden>
-          <div class="share-qr-panel">
-            <img id="qrImage" class="share-qr-image" alt="QR code for this share link" />
-            <a id="downloadQr" class="btn btn-ghost btn-sm" href="#" download>Download QR PNG</a>
-          </div>
+          <a id="download" class="btn btn-primary btn-block btn-lg" hidden>
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M20 15v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-4" />
+            </svg>
+            <span id="downloadLabel">Download</span>
+          </a>
           <div id="items" class="share-tree"></div>
-          <a id="download" class="btn btn-primary" hidden>Download</a>
+          <details class="share-qr">
+            <summary>Show QR code</summary>
+            <div class="share-qr-body">
+              <div class="qr-frame">
+                <img id="qrImage" class="qr" alt="QR code for this share link" width="168" height="168" />
+              </div>
+              <a id="downloadQr" class="btn btn-ghost btn-sm" href="#" download>Download QR code</a>
+            </div>
+          </details>
         </div>
       </section>
-      <p class="muted share-footer">Powered by {{SITE_TITLE}}</p>
+      <p class="muted small footer-note">Shared via {{SITE_TITLE}}</p>
     </main>
   </body>
 </html>

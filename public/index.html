@@ -2,15 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>{{SITE_TITLE}}</title>
     <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#0a0f0c" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#f4f6f4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111113" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)" />
     <script src="js/theme-init.js"></script>
     <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="toastify/toastify.css" />
-    <script src="toastify/toastify.js" defer></script>
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" type="image/svg+xml" href="assets/icon.svg" />
     <link rel="modulepreload" href="js/app.js" />
@@ -25,615 +23,370 @@
     </script>
     <script type="module" src="js/app.js"></script>
   </head>
-  <body data-view="upload">
-    <div class="backdrop" aria-hidden="true"></div>
-
+  <body>
     <svg class="svg-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-      <symbol
-        id="i-drop"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M12 3v12" />
-        <path d="m17 8-5-5-5 5" />
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      </symbol>
-      <symbol
-        id="i-files"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
-      </symbol>
-      <symbol
-        id="i-link"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M10 13a5 5 0 0 0 7.54.54l1.91-1.91a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-        <path d="M14 11a5 5 0 0 0-7.54-.54L4.55 12.4a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-      </symbol>
-      <symbol
-        id="i-sliders"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M12 20V10" />
-        <path d="M18 20V4" />
-        <path d="M6 20v-4" />
-      </symbol>
-      <symbol
-        id="i-sun"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <circle cx="12" cy="12" r="4" />
-        <path
-          d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
-        />
-      </symbol>
-      <symbol
-        id="i-moon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-      </symbol>
-      <symbol
-        id="i-logout"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-        <path d="m16 17 5-5-5-5" />
-        <path d="M21 12H9" />
-      </symbol>
-      <symbol
-        id="i-search"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <circle cx="11" cy="11" r="7" />
-        <path d="m21 21-4.3-4.3" />
-      </symbol>
-      <symbol
-        id="i-refresh"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M21 12a9 9 0 1 1-3.2-6.9" />
-        <path d="M21 3v6h-6" />
-      </symbol>
-      <symbol
-        id="i-camera"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path
-          d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"
-        />
-        <circle cx="12" cy="13" r="3" />
-      </symbol>
-      <symbol
-        id="i-folder"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path
-          d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
-        />
-      </symbol>
-      <symbol
-        id="i-more"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <circle cx="12" cy="5" r="1" />
-        <circle cx="12" cy="12" r="1" />
-        <circle cx="12" cy="19" r="1" />
-      </symbol>
-      <symbol
-        id="i-x"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M18 6 6 18" />
-        <path d="m6 6 12 12" />
-      </symbol>
-      <symbol
-        id="i-chevron"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="m9 18 6-6-6-6" />
-      </symbol>
+      <defs>
+        <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 15V3" /><path d="m7 8 5-5 5 5" /><path d="M20 15v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-4" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M20 15v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-4" />
+        </symbol>
+        <symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </symbol>
+        <symbol id="i-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+        </symbol>
+        <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" />
+        </symbol>
+        <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" />
+        </symbol>
+        <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
+        </symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 1 1-3.2-6.9" /><path d="M21 3v6h-6" />
+        </symbol>
+        <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z" /><circle cx="12" cy="13" r="3" />
+        </symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+        </symbol>
+        <symbol id="i-folder-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /><path d="M12 16v-5" /><path d="m9.5 13.5 2.5-2.5 2.5 2.5" />
+        </symbol>
+        <symbol id="i-more" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" />
+        </symbol>
+        <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m9 18 6-6-6-6" />
+        </symbol>
+        <symbol id="i-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+        </symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6 9 17l-5-5" />
+        </symbol>
+        <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9" /><path d="M12 8v4M12 16h.01" />
+        </symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" />
+        </symbol>
+        <symbol id="i-play" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5Z" />
+        </symbol>
+        <symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+          <path d="M5 12h14" />
+        </symbol>
+      </defs>
     </svg>
 
     <div id="dropOverlay" class="drop-overlay" hidden>
-      <div class="drop-overlay-card">
-        <svg class="icon icon-lg"><use href="#i-drop"></use></svg>
-        <span>Release to add files</span>
+      <div class="drop-overlay-inner">
+        <svg class="icon icon-xl" aria-hidden="true"><use href="#i-upload"></use></svg>
+        <p>Drop to add files</p>
       </div>
     </div>
 
-    <div class="app-frame">
-      <aside class="rail" aria-label="Primary">
-        <div class="brand-mark" title="{{SITE_TITLE}}" aria-hidden="true">
-          <svg class="icon"><use href="#i-drop"></use></svg>
-        </div>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="./" aria-label="{{SITE_TITLE}} home">
+          <img class="brand-mark" src="assets/icon.svg" alt="" width="28" height="28" />
+          <span class="brand-name">{{SITE_TITLE}}</span>
+        </a>
 
-        <nav class="rail-nav">
-          <button
-            id="filesTab"
-            class="rail-btn rail-library"
-            type="button"
-            data-view="files"
-            hidden
-            aria-label="Files"
-            title="Files"
-          >
-            <svg class="icon"><use href="#i-files"></use></svg>
-            <span>Files</span>
-          </button>
-          <button
-            id="sharesTab"
-            class="rail-btn rail-library"
-            type="button"
-            data-view="shares"
-            hidden
-            aria-label="Share links"
-            title="Share links"
-          >
-            <svg class="icon"><use href="#i-link"></use></svg>
-            <span>Shares</span>
-          </button>
-          <button
-            id="uploadTab"
-            class="rail-btn"
-            type="button"
-            data-view="upload"
-            aria-label="Upload"
-            title="Upload"
-          >
-            <svg class="icon"><use href="#i-drop"></use></svg>
-            <span>Upload</span>
+        <nav class="tabs" id="viewTabs" aria-label="Views" hidden>
+          <button id="uploadTab" class="tab" type="button" data-view="upload">Upload</button>
+          <button id="filesTab" class="tab" type="button" data-view="files">Files</button>
+          <button id="sharesTab" class="tab" type="button" data-view="shares">
+            Shares <span class="tab-count" id="totalShares">0</span>
           </button>
         </nav>
 
-        <div class="rail-footer">
+        <div class="topbar-actions">
           <div class="popover-anchor">
             <button
               id="settingsToggle"
-              class="rail-btn"
+              class="btn btn-ghost btn-icon"
               type="button"
-              aria-label="Upload settings"
+              aria-label="Transfer settings"
               aria-haspopup="dialog"
               aria-expanded="false"
               title="Transfer settings"
             >
-              <svg class="icon"><use href="#i-sliders"></use></svg>
-              <span>Tune</span>
+              <svg class="icon" aria-hidden="true"><use href="#i-sliders"></use></svg>
             </button>
-            <div
-              id="settingsPopover"
-              class="popover"
-              role="dialog"
-              aria-label="Upload settings"
-              hidden
-            >
-              <h3>Transfer tuning</h3>
-              <p class="muted popover-hint">
-                Saved in this browser. Applies to the running upload.
-              </p>
-              <label class="setting">
-                <span class="setting-label"
-                  >Parallel streams
-                  <output id="settingConcurrencyValue">4</output>
+            <div id="settingsPopover" class="popover" role="dialog" aria-label="Transfer settings" hidden>
+              <p class="popover-title">Transfer settings</p>
+              <p class="popover-hint">Saved in this browser. Applies to running uploads.</p>
+              <label class="field">
+                <span class="field-label">
+                  Parallel streams <output id="settingConcurrencyValue">4</output>
                 </span>
                 <input id="settingConcurrency" type="range" min="1" max="6" step="1" value="4" />
-                <span class="setting-hint"
-                  >More streams beat latency and single-connection TCP limits.</span
-                >
+                <span class="field-hint">More streams help on high-latency links.</span>
               </label>
-              <label class="setting">
-                <span class="setting-label">Chunk size</span>
+              <label class="field">
+                <span class="field-label">Chunk size</span>
                 <select id="settingChunk" class="input">
-                  <option value="0">Auto (adapts to your speed)</option>
+                  <option value="0">Auto</option>
                   <option value="2097152">2 MB</option>
                   <option value="4194304">4 MB</option>
                   <option value="8388608">8 MB</option>
                   <option value="16777216">16 MB</option>
                   <option value="33554432">32 MB</option>
                 </select>
-                <span class="setting-hint"
-                  >Auto targets ~2.5s per chunk so retries stay cheap.</span
-                >
+                <span class="field-hint">Auto adapts to your connection speed.</span>
               </label>
             </div>
           </div>
-          <button
-            id="themeToggle"
-            class="rail-btn"
-            type="button"
-            aria-label="Toggle theme"
-            title="Theme"
-          >
-            <svg class="icon"><use href="#i-moon"></use></svg>
-            <span>Theme</span>
+          <button id="themeToggle" class="btn btn-ghost btn-icon" type="button" aria-label="Theme" title="Theme">
+            <svg class="icon" aria-hidden="true"><use href="#i-monitor"></use></svg>
           </button>
-          <button
-            id="logoutBtn"
-            class="rail-btn"
-            type="button"
-            hidden
-            aria-label="Log out"
-            title="Log out"
-          >
-            <svg class="icon"><use href="#i-logout"></use></svg>
-            <span>Out</span>
+          <button id="logoutBtn" class="btn btn-ghost btn-icon" type="button" hidden aria-label="Log out" title="Log out">
+            <svg class="icon" aria-hidden="true"><use href="#i-logout"></use></svg>
           </button>
         </div>
-      </aside>
+      </div>
+    </header>
 
-      <div class="stage">
-        <header class="topbar">
-          <div class="topbar-copy">
-            <p class="kicker" id="pageKicker">Transfer</p>
-            <h1 id="pageTitle">{{SITE_TITLE}}</h1>
-            <p class="topbar-sub" id="pageSub">Drop files. Share links. Saturate the pipe.</p>
+    <main class="page" id="dropZone">
+      <section class="view" id="uploadView" data-pane="upload" aria-label="Upload">
+        <div class="dropzone" id="dropCard">
+          <div class="dropzone-icon" aria-hidden="true">
+            <svg class="icon icon-lg"><use href="#i-upload"></use></svg>
           </div>
-          <div class="topbar-tools">
-            <label class="search-field rail-library" hidden>
-              <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
-              <input
-                id="fileSearch"
-                class="input"
-                type="search"
-                placeholder="Search files…"
-                aria-label="Search files"
-              />
-            </label>
-            <span id="statusPill" class="status-pill" hidden>
-              <span class="status-dot" aria-hidden="true"></span>
-              <span id="statusPillText">Idle</span>
-            </span>
-          </div>
-        </header>
-
-        <main class="workspace" id="dropZone">
-          <section class="overview rail-library" id="overviewRow" hidden>
-            <article class="metric">
-              <p class="metric-kicker">Library</p>
-              <p class="metric-value" id="totalFiles">0</p>
-              <p class="metric-sub">files on disk</p>
-            </article>
-            <article class="metric metric-gold">
-              <p class="metric-kicker">Storage</p>
-              <p class="metric-value" id="totalSize">0 B</p>
-              <p class="metric-sub">used</p>
-            </article>
-            <article class="metric">
-              <p class="metric-kicker">Links</p>
-              <p class="metric-value" id="totalShares">0</p>
-              <p class="metric-sub">share links</p>
-            </article>
-          </section>
-
-          <section id="uploadHero" class="hero-panel">
-            <p class="hero-kicker">Drop · Share · Done</p>
-            <h2 class="hero-title">Put the files on the wire.</h2>
-            <p class="hero-copy">
-              Drag in files or folders, paste from the clipboard, or capture from the camera.
-              Parallel chunked uploads, resumable on retry.
-            </p>
-            <div class="drop-card" id="dropCard">
-              <div class="upload-icon" aria-hidden="true">
-                <svg class="icon"><use href="#i-drop"></use></svg>
-              </div>
-              <p class="upload-title">Drop files or folders here</p>
-              <p class="upload-hint">Or use the actions below. Folder structure is preserved.</p>
-              <div class="button-group">
-                <button id="browseFilesBtn" class="btn btn-primary" type="button">
-                  Browse files
-                </button>
-                <button id="browseFoldersBtn" class="btn btn-outline" type="button">
-                  Browse folders
-                </button>
-                <button id="cameraBtn" class="btn btn-outline" type="button">
-                  <svg class="icon"><use href="#i-camera"></use></svg>
-                  Camera
-                </button>
-              </div>
-            </div>
-            <input type="file" id="fileInput" multiple hidden />
-            <input type="file" id="folderInput" webkitdirectory directory multiple hidden />
-            <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden />
-          </section>
-
-          <div class="queue-dock" id="queueDock">
-            <div class="queue-head">
-              <p class="metric-kicker">Ready to send</p>
-              <p class="muted" id="queueSummary">Files stay on this device until you upload.</p>
-            </div>
-            <div id="fileList" class="queue-list"></div>
-            <button id="uploadButton" class="btn btn-primary upload-button" type="button" hidden>
-              Upload files
+          <h1 class="dropzone-title">Drop files to upload</h1>
+          <p class="dropzone-sub">Files and folders, or paste from your clipboard.</p>
+          <div class="dropzone-actions">
+            <button id="browseFilesBtn" class="btn btn-primary" type="button">Choose files</button>
+            <button id="browseFoldersBtn" class="btn btn-secondary" type="button">
+              <svg class="icon" aria-hidden="true"><use href="#i-folder-up"></use></svg>
+              Folder
+            </button>
+            <button id="cameraBtn" class="btn btn-secondary touch-only" type="button">
+              <svg class="icon" aria-hidden="true"><use href="#i-camera"></use></svg>
+              Camera
             </button>
           </div>
+          <p class="dropzone-hint" id="dropHint"></p>
+        </div>
+        <input type="file" id="fileInput" multiple hidden />
+        <input type="file" id="folderInput" webkitdirectory directory multiple hidden />
+        <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden />
 
-          <section id="libraryPanel" class="library-panel" hidden>
-            <div id="uploadedFilesList" class="library-pane active">
-              <div class="library-toolbar">
-                <nav id="fileBreadcrumb" class="crumbs" aria-label="Folder path"></nav>
-                <div class="library-tools">
-                  <div class="view-actions">
-                    <button id="browseFilesBtnLibrary" class="btn btn-outline btn-sm" type="button">
-                      Upload
-                    </button>
-                    <button id="browseFoldersBtnLibrary" class="btn btn-ghost btn-sm" type="button">
-                      Folder
-                    </button>
-                    <button id="cameraBtnLibrary" class="btn btn-ghost btn-sm" type="button">
-                      Camera
-                    </button>
-                  </div>
-                  <button
-                    id="refreshFilesBtn"
-                    class="btn btn-ghost btn-icon"
-                    type="button"
-                    aria-label="Refresh files"
-                    title="Refresh"
-                  >
-                    <svg class="icon"><use href="#i-refresh"></use></svg>
-                  </button>
-                </div>
-              </div>
-              <div class="table-scroll">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th><button type="button" class="th-sort" data-sort="name">Name</button></th>
-                      <th class="col-size">
-                        <button type="button" class="th-sort" data-sort="size">Size</button>
-                      </th>
-                      <th class="col-date">
-                        <button type="button" class="th-sort" data-sort="date">Modified</button>
-                      </th>
-                      <th class="col-actions"><span class="sr-only">Actions</span></th>
-                    </tr>
-                  </thead>
-                  <tbody id="uploadedFilesContent">
-                    <tr class="empty-row">
-                      <td colspan="4">Loading files…</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+        <div class="card queue" id="queueDock" hidden>
+          <div class="queue-head">
+            <div>
+              <h2 class="section-title">Ready to upload</h2>
+              <p class="muted small" id="queueSummary"></p>
             </div>
-
-            <div id="shareLinksSection" class="library-pane">
-              <div class="library-toolbar">
-                <p class="crumbs-static">Active and expired share links</p>
-                <button
-                  id="refreshSharesBtn"
-                  class="btn btn-ghost btn-icon"
-                  type="button"
-                  aria-label="Refresh share links"
-                  title="Refresh"
-                >
-                  <svg class="icon"><use href="#i-refresh"></use></svg>
-                </button>
-              </div>
-              <div class="table-scroll">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th class="col-status">Status</th>
-                      <th class="col-date">Expires</th>
-                      <th class="col-actions"><span class="sr-only">Actions</span></th>
-                    </tr>
-                  </thead>
-                  <tbody id="shareLinksContent">
-                    <tr class="empty-row">
-                      <td colspan="4">Loading share links…</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-        </main>
-
-        <section id="transferPanel" class="transfer-dock" hidden aria-live="polite">
-          <div class="transfer-strip">
-            <div class="transfer-identity">
-              <p id="transferTitle" class="transfer-title">Uploading…</p>
-              <p id="transferSubtitle" class="muted transfer-sub"></p>
-            </div>
-            <dl class="transfer-metrics">
-              <div class="metric-inline">
-                <dt>Speed</dt>
-                <dd>
-                  <span id="statSpeed">0 B/s</span>
-                  <span class="metric-bit" id="statSpeedBits">0 Mbps</span>
-                </dd>
-              </div>
-              <div class="metric-inline">
-                <dt>ETA</dt>
-                <dd>
-                  <span id="statEta">—</span>
-                  <span class="metric-bit" id="statEtaSub"></span>
-                </dd>
-              </div>
-              <div class="metric-inline">
-                <dt>Moved</dt>
-                <dd>
-                  <span id="statMoved">0 B</span>
-                  <span class="metric-bit" id="statMovedSub"></span>
-                </dd>
-              </div>
-              <div class="metric-inline">
-                <dt>Streams</dt>
-                <dd>
-                  <span id="statStreams">0/4</span>
-                  <span class="metric-bit" id="statStreamsSub"></span>
-                </dd>
-              </div>
-            </dl>
-            <div class="sparkline-wrap" title="Throughput">
-              <svg
-                id="sparkline"
-                class="sparkline"
-                viewBox="0 0 300 56"
-                preserveAspectRatio="none"
-                aria-hidden="true"
-              >
-                <defs>
-                  <linearGradient id="sparkGradient" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.35" />
-                    <stop offset="100%" stop-color="var(--accent)" stop-opacity="0" />
-                  </linearGradient>
-                </defs>
-                <path class="spark-fill" d="" />
-                <path class="spark-line" d="" />
-              </svg>
-            </div>
-            <div class="transfer-controls">
-              <button id="pauseBtn" class="btn btn-outline btn-sm" type="button">Pause</button>
-              <button id="cancelAllBtn" class="btn btn-destructive btn-sm" type="button">
-                Cancel
-              </button>
-              <button id="clearTransfersBtn" class="btn btn-outline btn-sm" type="button" hidden>
-                Clear
-              </button>
-            </div>
+            <button id="clearQueueBtn" class="btn btn-ghost btn-sm" type="button">Clear</button>
           </div>
-          <div class="progress progress-total"><div class="progress-bar" id="totalBar"></div></div>
-          <details class="transfer-details">
-            <summary>Per-file progress</summary>
-            <div id="transferList" class="transfer-list"></div>
-            <p id="transferFooter" class="muted transfer-footer"></p>
-          </details>
-        </section>
-      </div>
-    </div>
+          <ul id="fileList" class="queue-list"></ul>
+          <div class="queue-foot">
+            <button id="uploadButton" class="btn btn-primary btn-block" type="button" hidden>
+              Upload
+            </button>
+          </div>
+        </div>
+      </section>
 
-    <div
-      id="renameModal"
-      class="dialog-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="renameTitle"
-    >
-      <div class="dialog">
-        <h3 id="renameTitle">Rename item</h3>
-        <input type="text" id="renameInput" class="input" placeholder="Enter new name…" />
-        <div class="dialog-actions">
-          <button id="cancelRenameBtn" class="btn btn-ghost" type="button">Cancel</button>
-          <button id="confirmRenameBtn" class="btn btn-primary" type="button">Rename</button>
+      <section class="view" id="uploadedFilesList" data-pane="files" aria-label="Files" hidden>
+        <div class="view-head">
+          <nav id="fileBreadcrumb" class="crumbs" aria-label="Folder path"></nav>
+          <div class="view-tools">
+            <label class="search">
+              <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
+              <input id="fileSearch" type="search" placeholder="Search" aria-label="Search files" />
+              <kbd aria-hidden="true">/</kbd>
+            </label>
+            <button id="refreshFilesBtn" class="btn btn-ghost btn-icon" type="button" aria-label="Refresh files" title="Refresh">
+              <svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>
+            </button>
+            <button id="browseFoldersBtnLibrary" class="btn btn-secondary btn-icon" type="button" aria-label="Upload folder" title="Upload folder">
+              <svg class="icon" aria-hidden="true"><use href="#i-folder-up"></use></svg>
+            </button>
+            <button id="browseFilesBtnLibrary" class="btn btn-primary" type="button">
+              <svg class="icon" aria-hidden="true"><use href="#i-upload"></use></svg>
+              Upload
+            </button>
+          </div>
+        </div>
+        <p class="summary">
+          <span id="totalFiles">0</span> files · <span id="totalSize">0 B</span> used
+        </p>
+        <div class="card list">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th><button type="button" class="th-sort" data-sort="name" data-dir="asc">Name</button></th>
+                <th class="col-size"><button type="button" class="th-sort" data-sort="size">Size</button></th>
+                <th class="col-date"><button type="button" class="th-sort" data-sort="date">Modified</button></th>
+                <th class="col-actions"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="uploadedFilesContent">
+              <tr class="empty-row"><td colspan="4">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="view" id="shareLinksSection" data-pane="shares" aria-label="Share links" hidden>
+        <div class="view-head">
+          <div>
+            <h1 class="view-title">Share links</h1>
+            <p class="muted small">Anyone with an active link can download until you delete it.</p>
+          </div>
+          <div class="view-tools">
+            <button id="refreshSharesBtn" class="btn btn-ghost btn-icon" type="button" aria-label="Refresh share links" title="Refresh">
+              <svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>
+            </button>
+          </div>
+        </div>
+        <div class="card list">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th class="col-status">Access</th>
+                <th class="col-date">Expires</th>
+                <th class="col-actions"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="shareLinksContent">
+              <tr class="empty-row"><td colspan="4">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <aside id="transferPanel" class="transfer" hidden aria-label="Uploads" aria-live="polite">
+      <div class="transfer-head">
+        <div class="transfer-identity">
+          <p id="transferTitle" class="transfer-title">Uploading…</p>
+          <p id="transferSubtitle" class="transfer-sub"></p>
+        </div>
+        <div class="transfer-controls">
+          <button id="pauseBtn" class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Pause" title="Pause">
+            <svg class="icon" aria-hidden="true"><use href="#i-pause"></use></svg>
+          </button>
+          <button id="cancelAllBtn" class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Cancel all" title="Cancel all">
+            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
+          </button>
+          <button id="clearTransfersBtn" class="btn btn-ghost btn-sm" type="button" hidden>Done</button>
+          <button id="collapseTransferBtn" class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Minimize" aria-expanded="true" title="Minimize">
+            <svg class="icon" aria-hidden="true"><use href="#i-minus"></use></svg>
+          </button>
         </div>
       </div>
-    </div>
+      <div class="progress"><div class="progress-bar" id="totalBar"></div></div>
+      <div class="transfer-body">
+        <dl class="stats">
+          <div class="stat">
+            <dt>Speed</dt>
+            <dd><span id="statSpeed">0 B/s</span><span class="stat-sub" id="statSpeedBits"></span></dd>
+          </div>
+          <div class="stat">
+            <dt>Remaining</dt>
+            <dd><span id="statEta">—</span><span class="stat-sub" id="statEtaSub"></span></dd>
+          </div>
+          <div class="stat">
+            <dt>Sent</dt>
+            <dd><span id="statMoved">0 B</span><span class="stat-sub" id="statMovedSub"></span></dd>
+          </div>
+          <div class="stat">
+            <dt>Streams</dt>
+            <dd><span id="statStreams">0/4</span><span class="stat-sub" id="statStreamsSub"></span></dd>
+          </div>
+        </dl>
+        <svg id="sparkline" class="sparkline is-empty" viewBox="0 0 300 56" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="sparkGradient" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.3" />
+              <stop offset="100%" stop-color="var(--accent)" stop-opacity="0" />
+            </linearGradient>
+          </defs>
+          <path class="spark-fill" d="" />
+          <path class="spark-line" d="" />
+        </svg>
+        <details class="transfer-details">
+          <summary>Files</summary>
+          <div id="transferList" class="transfer-list"></div>
+          <p id="transferFooter" class="muted small transfer-footer"></p>
+        </details>
+      </div>
+    </aside>
 
-    <div
-      id="shareModal"
-      class="dialog-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="shareTitle"
-    >
-      <div class="dialog">
-        <h3 id="shareTitle">Create a share link</h3>
-        <p class="muted" id="shareItemName"></p>
+    <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 
-        <div id="shareForm" class="share-form">
-          <label class="share-option">
-            <span>Require PIN to open</span>
-            <input type="checkbox" id="shareAuth" />
+    <dialog id="renameModal" class="dialog" aria-labelledby="renameTitle">
+      <form class="dialog-body" id="renameForm">
+        <h2 id="renameTitle" class="dialog-title">Rename</h2>
+        <input type="text" id="renameInput" class="input" autocomplete="off" spellcheck="false" aria-labelledby="renameTitle" />
+        <div class="dialog-actions">
+          <button id="cancelRenameBtn" class="btn btn-ghost" type="button">Cancel</button>
+          <button id="confirmRenameBtn" class="btn btn-primary" type="submit">Rename</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="shareModal" class="dialog" aria-labelledby="shareTitle">
+      <div class="dialog-body">
+        <h2 id="shareTitle" class="dialog-title">Share</h2>
+        <p class="muted small truncate" id="shareItemName"></p>
+
+        <div id="shareForm" class="options">
+          <label class="option">
+            <span>
+              <span class="option-title">Require PIN</span>
+              <span class="option-hint">Visitors enter the app PIN to download.</span>
+            </span>
+            <input type="checkbox" id="shareAuth" class="switch" role="switch" />
           </label>
-          <label class="share-option">
-            <span>Link expires</span>
-            <select id="shareExpiry" class="input">
+          <label class="option">
+            <span class="option-title">Expires</span>
+            <select id="shareExpiry" class="input input-inline">
               <option value="0">Never</option>
-              <option value="3600">1 hour</option>
-              <option value="86400">1 day</option>
-              <option value="604800">7 days</option>
-              <option value="2592000">30 days</option>
+              <option value="3600">In 1 hour</option>
+              <option value="86400">In 1 day</option>
+              <option value="604800">In 7 days</option>
+              <option value="2592000">In 30 days</option>
             </select>
           </label>
         </div>
 
         <div id="shareResult" class="share-result" hidden>
-          <div class="share-qr-wrap">
-            <img id="shareQrImage" class="share-qr-image" alt="QR code for shared link" />
+          <div class="qr-frame">
+            <img id="shareQrImage" class="qr" alt="QR code for the share link" width="168" height="168" />
           </div>
-          <p class="muted">Scan the code or copy the link</p>
-          <input id="shareLink" class="input" readonly />
-          <div class="dialog-actions">
-            <button id="copyShareBtn" class="btn btn-primary" type="button" hidden>
-              Copy link
-            </button>
-            <button id="downloadQrBtn" class="btn btn-outline" type="button" hidden>
-              Download QR
-            </button>
+          <div class="copy-field">
+            <input id="shareLink" class="input" readonly aria-label="Share link" />
+            <button id="copyShareBtn" class="btn btn-primary" type="button" hidden>Copy</button>
           </div>
+          <button id="downloadQrBtn" class="btn btn-ghost btn-sm" type="button" hidden>
+            <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>
+            Download QR code
+          </button>
         </div>
 
         <div class="dialog-actions">
@@ -641,31 +394,28 @@
           <button id="createShareBtn" class="btn btn-primary" type="button">Create link</button>
         </div>
       </div>
-    </div>
+    </dialog>
 
-    <div
-      id="editShareModal"
-      class="dialog-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="editShareTitle"
-    >
-      <div class="dialog">
-        <h3 id="editShareTitle">Edit share link</h3>
-        <p class="muted" id="editShareName"></p>
-        <div class="share-form">
-          <label class="share-option">
-            <span>Require PIN to open</span>
-            <input type="checkbox" id="editShareAuth" />
+    <dialog id="editShareModal" class="dialog" aria-labelledby="editShareTitle">
+      <div class="dialog-body">
+        <h2 id="editShareTitle" class="dialog-title">Edit link</h2>
+        <p class="muted small truncate" id="editShareName"></p>
+        <div class="options">
+          <label class="option">
+            <span>
+              <span class="option-title">Require PIN</span>
+              <span class="option-hint">Visitors enter the app PIN to download.</span>
+            </span>
+            <input type="checkbox" id="editShareAuth" class="switch" role="switch" />
           </label>
-          <label class="share-option">
-            <span>Link expires</span>
-            <select id="editShareExpiry" class="input">
+          <label class="option">
+            <span class="option-title">Expires</span>
+            <select id="editShareExpiry" class="input input-inline">
               <option value="0">Never</option>
-              <option value="3600">1 hour</option>
-              <option value="86400">1 day</option>
-              <option value="604800">7 days</option>
-              <option value="2592000">30 days</option>
+              <option value="3600">In 1 hour</option>
+              <option value="86400">In 1 day</option>
+              <option value="604800">In 7 days</option>
+              <option value="2592000">In 30 days</option>
             </select>
           </label>
         </div>
@@ -674,23 +424,17 @@
           <button id="saveEditShareBtn" class="btn btn-primary" type="button">Save</button>
         </div>
       </div>
-    </div>
+    </dialog>
 
-    <div
-      id="confirmModal"
-      class="dialog-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="confirmTitle"
-    >
-      <div class="dialog">
-        <h3 id="confirmTitle">Are you sure?</h3>
+    <dialog id="confirmModal" class="dialog dialog-sm" aria-labelledby="confirmTitle">
+      <div class="dialog-body">
+        <h2 id="confirmTitle" class="dialog-title">Are you sure?</h2>
         <p class="muted" id="confirmMessage"></p>
         <div class="dialog-actions">
           <button id="confirmCancel" class="btn btn-ghost" type="button">Cancel</button>
-          <button id="confirmOk" class="btn btn-destructive" type="button">Delete</button>
+          <button id="confirmOk" class="btn btn-danger" type="button">Delete</button>
         </div>
       </div>
-    </div>
+    </dialog>
   </body>
 </html>

@@ -66,7 +66,6 @@ app.use((req, res, next) => {
     '/styles.css',
     '/manifest.json',
     '/asset-manifest.json',
-    '/toastify',
     '/service-worker.js',
     '/share/',
     '/share.html',
@@ -196,9 +195,7 @@ app.use((req, res, next) => {
 });
 
 // Serve remaining static files
-app.use(express.static('public'));
-// Serve Toastify assets under /toastify
-app.use('/toastify', express.static(path.join(__dirname, '../node_modules/toastify-js/src')));
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Error handling middleware
 // Express requires all 4 parameters for error handling middleware

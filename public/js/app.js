@@ -2,8 +2,8 @@
  * DumbDrop client bootstrap: shell navigation, dropzone, paste, camera, queue.
  */
 
-import { loadAppConfig, apiUrl, toast, initConfirmDialog } from './utils.js';
-import { initTheme, cycleTheme } from './theme.js';
+import { loadAppConfig, apiUrl, toast, initConfirmDialog, formatFileSize } from './utils.js';
+import { initTheme, cycleTheme, getThemePreference } from './theme.js';
 import { UploadQueue } from './upload.js';
 import { FileListManager, ShareLinksManager } from './file-list.js';
 
@@ -21,7 +21,7 @@ initConfirmDialog();
 
 const queue = new UploadQueue();
 const fileListManager = new FileListManager();
-const shareLinksManager = new ShareLinksManager();
+new ShareLinksManager();
 
 window.fileListManager = fileListManager;
 
@@ -32,59 +32,59 @@ const cameraInput = document.getElementById('cameraInput');
 const overlay = document.getElementById('dropOverlay');
 const settingsToggle = document.getElementById('settingsToggle');
 const settingsPopover = document.getElementById('settingsPopover');
-const pageTitle = document.getElementById('pageTitle');
-const pageKicker = document.getElementById('pageKicker');
-const pageSub = document.getElementById('pageSub');
-const siteTitle = pageTitle?.textContent?.trim() || 'DumbDrop';
-
-const VIEW_COPY = {
-  files: {
-    kicker: 'Library',
-    title: 'Files',
-    sub: 'Browse folders, share links, and keep the drop tidy.',
-  },
-  shares: {
-    kicker: 'Access',
-    title: 'Share links',
-    sub: 'Anyone with a link can download until you revoke it.',
-  },
-  upload: {
-    kicker: 'Transfer',
-    title: siteTitle,
-    sub: 'Drop files. Share links. Saturate the pipe.',
-  },
+const themeToggle = document.getElementById('themeToggle');
+const siteTitle = document.title;
+const VIEWS = ['upload', 'files', 'shares'];
+const VIEW_TITLES = {
+  upload: siteTitle,
+  files: `Files · ${siteTitle}`,
+  shares: `Share links · ${siteTitle}`,
 };
 
 export function setView(view) {
-  const next = VIEW_COPY[view] ? view : 'upload';
+  const libraryEnabled = Boolean(window.APP_CONFIG.showFileList);
+  const next = libraryEnabled && VIEWS.includes(view) ? view : 'upload';
   document.body.dataset.view = next;
-  document.querySelectorAll('.rail-btn[data-view]').forEach((btn) => {
-    const on = btn.dataset.view === next;
-    btn.classList.toggle('active', on);
-    btn.setAttribute('aria-current', on ? 'page' : 'false');
+  document.querySelectorAll('.tab[data-view]').forEach((tab) => {
+    if (tab.dataset.view === next) tab.setAttribute('aria-current', 'page');
+    else tab.removeAttribute('aria-current');
   });
-  const copy = VIEW_COPY[next];
-  if (pageKicker) pageKicker.textContent = copy.kicker;
-  if (pageTitle) pageTitle.textContent = copy.title;
-  if (pageSub) pageSub.textContent = copy.sub;
-  shareLinksManager.showPane?.(next === 'shares' ? 'shares' : 'files');
+  document.querySelectorAll('.view[data-pane]').forEach((pane) => {
+    pane.hidden = pane.dataset.pane !== next;
+  });
+  document.title = VIEW_TITLES[next];
+  fileListManager.closeMenu?.();
 }
 
 if (window.APP_CONFIG.showFileList) {
-  document.body.classList.add('app--library');
+  document.getElementById('viewTabs').hidden = false;
   setView('files');
 } else {
   setView('upload');
 }
 
-document.querySelectorAll('.rail-btn[data-view]').forEach((btn) => {
-  btn.addEventListener('click', () => setView(btn.dataset.view));
+document.querySelectorAll('.tab[data-view]').forEach((tab) => {
+  tab.addEventListener('click', () => setView(tab.dataset.view));
 });
 
-document.getElementById('themeToggle')?.addEventListener('click', () => {
+const THEME_META = {
+  light: { icon: 'i-sun', label: 'Light' },
+  dark: { icon: 'i-moon', label: 'Dark' },
+  system: { icon: 'i-monitor', label: 'System' },
+};
+
+function syncThemeButton(preference) {
+  const meta = THEME_META[preference] || THEME_META.system;
+  themeToggle?.querySelector('use')?.setAttribute('href', `#${meta.icon}`);
+  themeToggle?.setAttribute('aria-label', `Theme: ${meta.label}. Click to change.`);
+  themeToggle?.setAttribute('title', `Theme: ${meta.label}`);
+}
+
+syncThemeButton(getThemePreference());
+themeToggle?.addEventListener('click', () => {
   const preference = cycleTheme();
-  document.getElementById('themeToggle').setAttribute('aria-label', `Theme: ${preference}`);
-  toast(`Theme: ${preference}`, true);
+  syncThemeButton(preference);
+  toast(`Theme: ${THEME_META[preference].label}`);
 });
 
 function setSettingsOpen(open) {
@@ -96,27 +96,23 @@ document.addEventListener('click', (e) => {
   if (
     !settingsPopover.hidden &&
     !settingsPopover.contains(e.target) &&
-    e.target !== settingsToggle &&
     !settingsToggle.contains(e.target)
   ) {
     setSettingsOpen(false);
   }
 });
 
-function openFiles() {
-  fileInput.click();
-}
-function openFolders() {
-  folderInput.click();
-}
+const openFiles = () => fileInput.click();
+const openFolders = () => folderInput.click();
+const openCamera = () => cameraInput.click();
 
 document.getElementById('browseFilesBtn')?.addEventListener('click', openFiles);
 document.getElementById('browseFoldersBtn')?.addEventListener('click', openFolders);
+document.getElementById('cameraBtn')?.addEventListener('click', openCamera);
 document.getElementById('browseFilesBtnLibrary')?.addEventListener('click', openFiles);
 document.getElementById('browseFoldersBtnLibrary')?.addEventListener('click', openFolders);
-document.getElementById('cameraBtn')?.addEventListener('click', () => cameraInput.click());
-document.getElementById('cameraBtnLibrary')?.addEventListener('click', () => cameraInput.click());
 document.getElementById('uploadButton')?.addEventListener('click', () => queue.start());
+document.getElementById('clearQueueBtn')?.addEventListener('click', () => queue.clear());
 document
   .getElementById('createShareBtn')
   ?.addEventListener('click', () => fileListManager.createShare());
@@ -132,9 +128,19 @@ document
 document
   .getElementById('cancelRenameBtn')
   ?.addEventListener('click', () => fileListManager.cancelRename());
-document
-  .getElementById('confirmRenameBtn')
-  ?.addEventListener('click', () => fileListManager.confirmRename());
+document.getElementById('renameForm')?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  fileListManager.confirmRename();
+});
+
+const dropHint = document.getElementById('dropHint');
+if (dropHint) {
+  const limit = Number(window.APP_CONFIG.maxFileSize);
+  const parts = [];
+  if (Number.isFinite(limit) && limit > 0) parts.push(`Up to ${formatFileSize(limit)} per file`);
+  if (window.APP_CONFIG.autoUpload) parts.push('Uploads start immediately');
+  dropHint.textContent = parts.join(' · ');
+}
 
 const logoutBtn = document.getElementById('logoutBtn');
 if (window.APP_CONFIG.pinEnabled && logoutBtn) {
@@ -206,15 +212,11 @@ window.addEventListener('dumbdrop:uploads-finished', () => {
 window.addEventListener('dumbdrop:upload-started', () => {
   if (window.APP_CONFIG?.showFileList) setView('files');
 });
+// Staged files live in the Upload view; show them wherever they were added from.
+window.addEventListener('dumbdrop:files-staged', () => setView('upload'));
 
-document.getElementById('shareModal')?.addEventListener('click', (e) => {
-  if (e.target.id === 'shareModal') fileListManager.closeShare();
-});
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    fileListManager.closeShare();
-    setSettingsOpen(false);
-  }
+  if (e.key === 'Escape') setSettingsOpen(false);
 });
 
 async function handleDrop(e) {

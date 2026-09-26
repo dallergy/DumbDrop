@@ -97,6 +97,10 @@ function resolveSharedFilePath(share, relativePath) {
   return targetPath;
 }
 
+function sumSizes(items = []) {
+  return items.reduce((total, item) => total + (item.size || 0), 0);
+}
+
 async function buildShareTree(dirPath, relativeBase = '') {
   const entries = await fsp.readdir(dirPath, { withFileTypes: true });
   const items = [];
@@ -115,6 +119,9 @@ async function buildShareTree(dirPath, relativeBase = '') {
 
     if (entry.isDirectory()) {
       node.children = await buildShareTree(fullPath, relativePath);
+      // A directory's own stat size is its inode, not its contents.
+      node.size = sumSizes(node.children);
+      node.formattedSize = formatFileSize(node.size);
     }
 
     items.push(node);
@@ -263,8 +270,10 @@ router.get('/:token', resolveShare, async (req, res, next) => {
     const stats = await fsp.stat(req.sharePath);
     let items;
 
+    let size = stats.size;
     if (stats.isDirectory()) {
       items = await buildShareTree(req.sharePath);
+      size = sumSizes(items);
     }
 
     res.json({
@@ -273,8 +282,8 @@ router.get('/:token', resolveShare, async (req, res, next) => {
       authRequired: req.share.authRequired,
       authenticated: hasAccess(req, req.share),
       expiresAt: req.share.expiresAt,
-      size: stats.size,
-      formattedSize: formatFileSize(stats.size),
+      size,
+      formattedSize: formatFileSize(size),
       items: hasAccess(req, req.share) ? items : undefined,
     });
   } catch (error) {
