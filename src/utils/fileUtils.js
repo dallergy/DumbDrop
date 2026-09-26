@@ -82,7 +82,7 @@ async function ensureDirectoryExists(directoryPath) {
     logger.success(`Directory is writable: ${directoryPath}`);
   } catch (err) {
     logger.error(`Directory error: ${err.message}`);
-    throw new Error(`Failed to access or create directory: ${directoryPath}`);
+    throw new Error(`Failed to access or create directory: ${directoryPath}`, { cause: err });
   }
 }
 

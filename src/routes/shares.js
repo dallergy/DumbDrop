@@ -161,21 +161,21 @@ async function cleanupExpiredShares() {
 
 router.post('/', async (req, res, next) => {
   try {
-    const relativePath = typeof req.body.path === 'string' ? req.body.path.replace(/\\/g, '/') : '';
+    const relativePath = typeof req.body?.path === 'string' ? req.body?.path.replace(/\\/g, '/') : '';
     const itemPath = path.join(config.uploadDir, relativePath);
     if (!relativePath || !isPathWithinUploadDir(itemPath, config.uploadDir, true)) {
       return res.status(400).json({ error: 'Choose an existing file or folder.' });
     }
 
     const stats = await fsp.stat(itemPath);
-    const expiresIn = Number(req.body.expiresIn || 0);
+    const expiresIn = Number(req.body?.expiresIn || 0);
     const token = crypto.randomBytes(18).toString('base64url');
     const share = {
       token,
       path: relativePath,
       name: path.basename(relativePath),
       type: stats.isDirectory() ? 'directory' : 'file',
-      authRequired: Boolean(req.body.authRequired && config.pin),
+      authRequired: Boolean(req.body?.authRequired && config.pin),
       createdAt: new Date().toISOString(),
       expiresAt: expiresIn > 0
         ? new Date(Date.now() + Math.min(expiresIn, 30 * 86400) * 1000).toISOString()
@@ -222,15 +222,15 @@ router.patch('/:token', async (req, res, next) => {
       return res.status(404).json({ error: 'Share not found.' });
     }
 
-    if (req.body.expiresIn !== undefined) {
-      const expiresIn = Number(req.body.expiresIn);
+    if (req.body?.expiresIn !== undefined) {
+      const expiresIn = Number(req.body?.expiresIn);
       share.expiresAt = expiresIn > 0
         ? new Date(Date.now() + Math.min(expiresIn, 30 * 86400) * 1000).toISOString()
         : null;
     }
 
-    if (req.body.authRequired !== undefined) {
-      share.authRequired = Boolean(req.body.authRequired && config.pin);
+    if (req.body?.authRequired !== undefined) {
+      share.authRequired = Boolean(req.body?.authRequired && config.pin);
     }
 
     shares[req.params.token] = share;
@@ -286,7 +286,7 @@ router.post('/:token/auth', resolveShare, (req, res) => {
   if (!req.share.authRequired) {
     return res.json({ authenticated: true });
   }
-  if (!config.pin || typeof req.body.pin !== 'string' || !safeCompare(req.body.pin, config.pin)) {
+  if (!config.pin || typeof req.body?.pin !== 'string' || !safeCompare(req.body?.pin, config.pin)) {
     return res.status(401).json({ error: 'Incorrect PIN.' });
   }
 
@@ -300,6 +300,10 @@ router.post('/:token/auth', resolveShare, (req, res) => {
   res.json({ authenticated: true });
 });
 
+// Paths are validated before sending; ZIP caches live under .metadata, which
+// Express 5 would otherwise refuse as a dotfile.
+const SEND_OPTIONS = { dotfiles: 'allow' };
+
 router.get('/:token/qr.png', resolveShare, async (req, res, next) => {
   try {
     await renderShareQrPng(shareUrl(req.share.token), res);
@@ -308,13 +312,13 @@ router.get('/:token/qr.png', resolveShare, async (req, res, next) => {
   }
 });
 
-router.get('/:token/file/*', resolveShare, async (req, res, next) => {
+router.get('/:token/file/*splat', resolveShare, async (req, res, next) => {
   try {
     if (!hasAccess(req, req.share)) {
       return res.status(401).json({ error: 'PIN required.' });
     }
 
-    const relativePath = req.params[0];
+    const relativePath = [].concat(req.params.splat || []).join('/');
     const targetPath = resolveSharedFilePath(req.share, relativePath);
     if (!targetPath) {
       return res.status(404).json({ error: 'File not found in this share.' });
@@ -325,7 +329,7 @@ router.get('/:token/file/*', resolveShare, async (req, res, next) => {
       return res.status(400).json({ error: 'Folders must be downloaded as a ZIP archive.' });
     }
 
-    res.download(targetPath, path.basename(targetPath));
+    res.download(targetPath, path.basename(targetPath), SEND_OPTIONS);
   } catch (error) {
     next(error);
   }
@@ -338,11 +342,11 @@ router.get('/:token/download', resolveShare, async (req, res, next) => {
     }
 
     if (req.share.type === 'file') {
-      return res.download(req.sharePath, req.share.name);
+      return res.download(req.sharePath, req.share.name, SEND_OPTIONS);
     }
 
     const zipPath = await getOrCreateShareZip(req.share.token, req.sharePath);
-    res.download(zipPath, `${req.share.name}.zip`);
+    res.download(zipPath, `${req.share.name}.zip`, SEND_OPTIONS);
   } catch (error) {
     next(error);
   }

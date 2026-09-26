@@ -242,7 +242,7 @@ async function initialize() {
     } catch (err) {
         logger.error(`Metadata directory error (${METADATA_DIR}): ${err.message}`);
         // Decide if this is fatal. If resumability is critical, maybe throw.
-        throw new Error(`Failed to access or create metadata directory: ${METADATA_DIR}`);
+        throw new Error(`Failed to access or create metadata directory: ${METADATA_DIR}`, { cause: err });
     }
     // --- End added section ---
 

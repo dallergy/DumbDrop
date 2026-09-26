@@ -19,7 +19,7 @@ const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
  * Verify PIN
  */
 router.post('/verify-pin', (req, res) => {
-  const { pin } = req.body;
+  const { pin } = req.body || {};
   const ip = getClientIp(req);
   
   try {

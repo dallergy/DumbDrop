@@ -1,4 +1,4 @@
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const { registerCleanupTask } = require('../utils/cleanup');
 const { getClientIp } = require('../utils/ipExtractor');
 
@@ -37,7 +37,7 @@ const initUploadLimiter = createLimiter({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => getClientIp(req)
+  keyGenerator: (req) => ipKeyGenerator(getClientIp(req))
 });
 
 /**
@@ -53,7 +53,7 @@ const chunkUploadLimiter = createLimiter({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => getClientIp(req)
+  keyGenerator: (req) => ipKeyGenerator(getClientIp(req))
 });
 
 /**
@@ -69,7 +69,7 @@ const pinVerifyLimiter = createLimiter({
   standardHeaders: true,
   legacyHeaders: false,
   // Use secure IP extraction to prevent header spoofing
-  keyGenerator: (req) => getClientIp(req),
+  keyGenerator: (req) => ipKeyGenerator(getClientIp(req)),
   // Apply strict rate limiting only to PIN verification, not PIN status checks
   skip: (req) => {
     return req.path === '/pin-required'; // Skip rate limiting for PIN requirement checks
@@ -89,7 +89,7 @@ const pinStatusLimiter = createLimiter({
   standardHeaders: true,
   legacyHeaders: false,
   // Use secure IP extraction to prevent header spoofing
-  keyGenerator: (req) => getClientIp(req)
+  keyGenerator: (req) => ipKeyGenerator(getClientIp(req))
 });
 
 /**
@@ -105,7 +105,7 @@ const downloadLimiter = createLimiter({
   standardHeaders: true,
   legacyHeaders: false,
   // Use secure IP extraction to prevent header spoofing
-  keyGenerator: (req) => getClientIp(req)
+  keyGenerator: (req) => ipKeyGenerator(getClientIp(req))
 });
 
 module.exports = {
