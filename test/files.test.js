@@ -287,5 +287,45 @@ describe('File Management API Tests', () => {
       assert.strictEqual(response.status, 403);
     });
   });
+  describe('Express 5 wildcard handling', () => {
+    it('should download files in nested folders with encoded names', async () => {
+      const nestedDir = path.join(config.uploadDir, 'Nested Folder');
+      await fs.mkdir(nestedDir, { recursive: true });
+      await fs.writeFile(path.join(nestedDir, 'my file.txt'), 'nested');
+
+      const response = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: '/api/files/download/Nested%20Folder/my%20file.txt',
+        method: 'GET',
+      });
+
+      assert.strictEqual(response.status, 200);
+      assert.strictEqual(response.data, 'nested');
+      await fs.rm(nestedDir, { recursive: true, force: true });
+    });
+
+    it('should block traversal hidden in encoded slashes', async () => {
+      const response = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: '/api/files/download/..%2F..%2F..%2Fetc%2Fpasswd',
+        method: 'GET',
+      });
+
+      assert.strictEqual(response.status, 403);
+    });
+
+    it('should reject rename requests without a body', async () => {
+      const response = await makeRequest({
+        host: 'localhost',
+        port: server.address().port,
+        path: '/api/files/rename/test-file.txt',
+        method: 'PUT',
+      });
+
+      assert.strictEqual(response.status, 400);
+    });
+  });
 });
 

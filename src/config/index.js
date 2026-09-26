@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 const { validatePin } = require('../utils/security');
 const logger = require('../utils/logger');

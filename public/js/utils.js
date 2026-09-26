@@ -83,22 +83,46 @@ export function generateBatchId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
+const TOAST_MS = 3200;
+
+/**
+ * Lightweight toast notifications. `ok=false` renders the error style.
+ */
 export function toast(text, ok = true) {
-  Toastify({
-    text,
-    duration: 2800,
-    gravity: 'bottom',
-    position: 'right',
-    style: {
-      background: ok ? 'oklch(0.42 0.12 155)' : 'oklch(0.5 0.18 25)',
-      color: '#fff',
-      borderRadius: '10px',
-      boxShadow: '0 8px 24px rgba(0,0,0,.18)',
-    },
-  }).showToast();
+  const host = document.getElementById('toasts');
+  if (!host) return;
+  const el = document.createElement('div');
+  el.className = `toast${ok ? '' : ' is-error'}`;
+  el.setAttribute('role', ok ? 'status' : 'alert');
+  el.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#${ok ? 'i-check' : 'i-alert'}"></use></svg>`;
+  const label = document.createElement('span');
+  label.textContent = text;
+  el.appendChild(label);
+  host.appendChild(el);
+  while (host.children.length > 3) host.firstElementChild.remove();
+  setTimeout(() => {
+    el.classList.add('is-leaving');
+    setTimeout(() => el.remove(), 220);
+  }, TOAST_MS);
 }
 
-let confirmResolver = null;
+/**
+ * Native <dialog> helpers. Clicking the backdrop closes, Escape is handled by the browser.
+ */
+export function openDialog(dialog) {
+  if (!dialog || dialog.open) return;
+  if (!dialog.dataset.bound) {
+    dialog.dataset.bound = 'true';
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close('backdrop');
+    });
+  }
+  dialog.showModal();
+}
+
+export function closeDialog(dialog, value) {
+  if (dialog?.open) dialog.close(value);
+}
 
 /**
  * Promise-based confirm dialog. Falls back to window.confirm if markup is missing.
@@ -115,29 +139,22 @@ export function askConfirm({
   document.getElementById('confirmMessage').textContent = message || '';
   const okBtn = document.getElementById('confirmOk');
   okBtn.textContent = ok;
-  okBtn.className = danger ? 'btn btn-destructive' : 'btn btn-primary';
-  modal.classList.add('open');
+  okBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+  modal.returnValue = '';
+  openDialog(modal);
+  okBtn.focus();
   return new Promise((resolve) => {
-    confirmResolver = resolve;
+    modal.addEventListener('close', () => resolve(modal.returnValue === 'ok'), { once: true });
   });
 }
 
 export function initConfirmDialog() {
   const modal = document.getElementById('confirmModal');
   if (!modal) return;
-  const finish = (value) => {
-    modal.classList.remove('open');
-    if (confirmResolver) confirmResolver(value);
-    confirmResolver = null;
-  };
-  document.getElementById('confirmCancel')?.addEventListener('click', () => finish(false));
-  document.getElementById('confirmOk')?.addEventListener('click', () => finish(true));
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) finish(false);
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && modal.classList.contains('open')) finish(false);
-  });
+  document
+    .getElementById('confirmCancel')
+    ?.addEventListener('click', () => closeDialog(modal, 'cancel'));
+  document.getElementById('confirmOk')?.addEventListener('click', () => closeDialog(modal, 'ok'));
 }
 
 export async function runPool(items, limit, worker) {

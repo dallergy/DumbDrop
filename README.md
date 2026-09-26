@@ -133,14 +133,11 @@ The repo already has `.github/workflows/docker-publish.yml`. To publish **your**
 2. Add secrets:
    - `DOCKER_USERNAME` = your Docker Hub username
    - `DOCKER_PASSWORD` = a [Docker Hub access token](https://hub.docker.com/settings/security)
-3. Edit `.github/workflows/docker-publish.yml` and change the image name:
+3. Merge your branch to `main`. GitHub builds a multi-arch (amd64/arm64) image, scans it with
+   Trivy, and pushes `DOCKER_USERNAME/dumbdrop:latest` only if no fixable HIGH/CRITICAL
+   vulnerabilities are found. Pushing a `v1.2.3` tag also publishes `1.2.3`, `1.2` and `1`.
 
-```yaml
-images: |
-  YOUR_DOCKERHUB_USER/dumbdrop
-```
-
-4. Merge your branch to `main` — GitHub builds and pushes `latest` automatically.
+Pull requests run the same build and scan (plus lint, tests and `npm audit`) in `.github/workflows/ci.yml`.
 
 #### Option C — GitHub Container Registry (no Docker Hub)
 
@@ -166,14 +163,14 @@ For local development setup, troubleshooting, and advanced usage, see the dedica
 
 - **File and folder sharing** – create unguessable links directly from the file list, with optional PIN protection and automatic expiry.
 - **Private QR sharing** – every share link gets a scannable QR code PNG generated on the server (no external QR services).
-- **Folder downloads** – shared folders are streamed as compressed `.tar.gz` archives; files retain their original names.
+- **Folder downloads** – shared folders download as a single `.zip` (built once and cached); files retain their original names.
 
 - 🚀 Drag and drop file uploads, clipboard paste, and mobile camera capture
 - ⚡ Parallel chunked uploads that saturate the line (up to 6 streams per file, adaptive 2–32MB chunks, streamed to disk)
 - 📊 Live transfer dashboard: MB/s and Mbps, ETA, throughput sparkline, per-file progress, pause/cancel/retry
 - 📁 Multiple file and folder selection
-- 🎨 Modern glass UI with light/dark/system theme and no first-paint flash
-- 📦 Docker support with healthchecks and a non-root runtime user
+- 🎨 Minimal, keyboard-friendly UI (`/` to search, native dialogs) with light/dark/system theme and no first-paint flash
+- 📦 Hardened Docker image: non-root user, healthcheck, tini, no npm/pip at runtime, scanned for CVEs on every build
 - 🔒 Optional PIN protection
 - 📱 Mobile-friendly interface
 - 🔔 Configurable notifications via Apprise
@@ -415,8 +412,8 @@ Both {size} and {storage} use the same formatting rules based on APPRISE_SIZE_UN
 
 ### Stack
 
-- **Backend**: Node.js (>=20.0.0, image uses Node 24 Alpine) with Express
-- **Frontend**: Vanilla JavaScript modules
+- **Backend**: Node.js (>=20.0.0, image uses Node 24 Alpine) with Express 5
+- **Frontend**: Vanilla JavaScript modules and plain CSS (no build step, no runtime dependencies)
 - **Container**: Docker multi-stage build, non-root user, `/health` check
 - **Security**: Helmet CSP, rate limiting, httpOnly PIN cookies
 - **Upload**: Parallel out-of-order chunks streamed from socket to disk (see below)
@@ -460,10 +457,12 @@ model per-connection congestion control.
 
 - express: Web framework
 - multer: File upload handling
-- apprise: Notification system
-- cors: Cross-origin resource sharing
+- archiver: ZIP downloads for shared folders
+- qrcode: Server-side QR codes for share links
+- helmet, cors, cookie-parser: HTTP security headers, CORS, PIN cookie
 - dotenv: Environment configuration
 - express-rate-limit: Rate limiting
+- Apprise (Python, installed in the Docker image): Notifications
 
 ## Contributing
 

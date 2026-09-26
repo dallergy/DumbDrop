@@ -15,14 +15,14 @@ import {
   writeSetting,
 } from './utils.js';
 import { TransferEngine, MAX_CONCURRENCY, sentOf } from './transfer-engine.js';
+import { fileGlyph } from './icons.js';
 
 const QUEUE_PREVIEW_LIMIT = 60;
 const CARD_LINGER_MS = 1800;
 const SPARK_W = 300;
 const SPARK_H = 56;
 
-const ICON_X =
-  '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+const spriteIcon = (id) => `<svg class="icon" aria-hidden="true"><use href="#${id}"></use></svg>`;
 
 export function loadUploadSettings() {
   const cfg = window.APP_CONFIG || {};
@@ -53,7 +53,10 @@ export class UploadQueue {
     });
 
     this.el = {
+      dock: document.getElementById('queueDock'),
       queue: document.getElementById('fileList'),
+      summary: document.getElementById('queueSummary'),
+      collapse: document.getElementById('collapseTransferBtn'),
       uploadButton: document.getElementById('uploadButton'),
       panel: document.getElementById('transferPanel'),
       title: document.getElementById('transferTitle'),
@@ -89,6 +92,18 @@ export class UploadQueue {
     });
     this.el.cancelAll?.addEventListener('click', () => this.engine.cancelAll());
     this.el.clear?.addEventListener('click', () => this.clearFinished());
+    this.el.collapse?.addEventListener('click', () => {
+      const collapsed = this.el.panel.classList.toggle('is-collapsed');
+      this.el.collapse.setAttribute('aria-expanded', String(!collapsed));
+      this.el.collapse.setAttribute('aria-label', collapsed ? 'Expand' : 'Minimize');
+      this.el.collapse.title = collapsed ? 'Expand' : 'Minimize';
+    });
+    this.el.queue?.addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-remove]');
+      if (!btn) return;
+      this.staged.splice(Number(btn.dataset.remove), 1);
+      this.renderQueue();
+    });
 
     if (this.el.concurrency) {
       this.el.concurrency.max = String(MAX_CONCURRENCY);
@@ -134,7 +149,8 @@ export class UploadQueue {
     }
     this.staged = [...this.staged, ...files];
     this.renderQueue();
-    toast(`Queued ${files.length} file${files.length === 1 ? '' : 's'}. Click Upload to send.`);
+    window.dispatchEvent(new CustomEvent('dumbdrop:files-staged'));
+    toast(`Added ${files.length} file${files.length === 1 ? '' : 's'}`);
   }
 
   clear() {
@@ -160,34 +176,35 @@ export class UploadQueue {
   }
 
   renderQueue() {
-    const { queue, uploadButton } = this.el;
+    const { dock, queue, uploadButton, summary } = this.el;
     queue.replaceChildren();
     if (!this.staged.length) {
+      dock.hidden = true;
       uploadButton.hidden = true;
       return;
     }
     const total = this.staged.reduce((sum, f) => sum + f.size, 0);
     const preview = this.staged.slice(0, QUEUE_PREVIEW_LIMIT);
     const frag = document.createDocumentFragment();
-    preview.forEach((file) => {
-      const item = document.createElement('div');
+    preview.forEach((file, index) => {
+      const name = file.webkitRelativePath || file.name;
+      const item = document.createElement('li');
       item.className = 'queue-item';
-      item.innerHTML = `<span class="queue-name">${escapeHtml(file.webkitRelativePath || file.name)}</span><span class="queue-size">${formatFileSize(file.size)}</span>`;
+      item.innerHTML = `<span class="file-glyph">${fileGlyph({ type: 'file', name: file.name })}</span><span class="queue-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span><span class="queue-size">${formatFileSize(file.size)}</span><button type="button" class="btn btn-ghost btn-icon btn-sm" data-remove="${index}" aria-label="Remove ${escapeHtml(file.name)}">${spriteIcon('i-x')}</button>`;
       frag.appendChild(item);
     });
     if (this.staged.length > preview.length) {
-      const more = document.createElement('div');
+      const more = document.createElement('li');
       more.className = 'queue-item queue-more';
-      more.textContent = `…and ${this.staged.length - preview.length} more`;
+      more.textContent = `and ${this.staged.length - preview.length} more`;
       frag.appendChild(more);
     }
     queue.appendChild(frag);
-    const summary = document.getElementById('queueSummary');
-    if (summary) {
-      summary.textContent = `${this.staged.length} file${this.staged.length === 1 ? '' : 's'} · ${formatFileSize(total)} still on this device`;
-    }
+    const count = `${this.staged.length} file${this.staged.length === 1 ? '' : 's'}`;
+    if (summary) summary.textContent = `${count} · ${formatFileSize(total)}`;
+    dock.hidden = false;
     uploadButton.hidden = false;
-    uploadButton.textContent = `Upload ${this.staged.length} file${this.staged.length === 1 ? '' : 's'} · ${formatFileSize(total)}`;
+    uploadButton.textContent = `Upload ${count}`;
   }
 
   // ----- dashboard -----
@@ -195,17 +212,6 @@ export class UploadQueue {
   render(snapshot) {
     const s = snapshot;
     const { el } = this;
-    document.body.classList.toggle('transfer-open', !el.panel.hidden);
-    const pill = document.getElementById('statusPillText');
-    if (pill) {
-      pill.textContent = s.finished
-        ? s.filesFailed
-          ? 'Finished with errors'
-          : 'Uploads complete'
-        : s.paused
-          ? 'Paused'
-          : formatRate(s.rate);
-    }
     if (el.panel.hidden) return;
 
     const pct = s.totalBytes ? (s.sentBytes / s.totalBytes) * 100 : 0;
@@ -237,17 +243,24 @@ export class UploadQueue {
       el.subtitle.textContent = 'Nothing was kept on the server';
     } else if (s.finished) {
       const failed = s.filesFailed ? ` · ${s.filesFailed} failed` : '';
-      el.title.textContent = s.filesFailed ? 'Finished with errors' : 'All uploads complete';
+      el.title.textContent = s.filesFailed ? 'Finished with errors' : 'Upload complete';
       el.subtitle.textContent = `${s.filesDone} of ${s.filesTotal} file${s.filesTotal === 1 ? '' : 's'} uploaded${failed}`;
     } else if (s.paused) {
       el.title.textContent = 'Paused';
       el.subtitle.textContent = `${s.filesDone} of ${s.filesTotal} done · in-flight chunks will finish`;
     } else {
-      el.title.textContent = `Uploading ${s.filesActive || 1} of ${s.filesTotal - s.filesDone} file${s.filesTotal - s.filesDone === 1 ? '' : 's'}`;
-      el.subtitle.textContent = `${s.filesDone} done${s.filesFailed ? ` · ${s.filesFailed} failed` : ''}`;
+      const left = s.filesTotal - s.filesDone;
+      el.title.textContent = `Uploading ${left} file${left === 1 ? '' : 's'} · ${pct.toFixed(0)}%`;
+      el.subtitle.textContent = `${s.filesDone} of ${s.filesTotal} done${s.filesFailed ? ` · ${s.filesFailed} failed` : ''}`;
     }
 
-    el.pause.textContent = s.paused ? 'Resume' : 'Pause';
+    const pauseLabel = s.paused ? 'Resume' : 'Pause';
+    if (el.pause.dataset.state !== pauseLabel) {
+      el.pause.dataset.state = pauseLabel;
+      el.pause.innerHTML = spriteIcon(s.paused ? 'i-play' : 'i-pause');
+      el.pause.setAttribute('aria-label', pauseLabel);
+      el.pause.title = pauseLabel;
+    }
     el.pause.hidden = s.finished;
     el.cancelAll.hidden = s.finished;
     el.clear.hidden = !s.finished;
@@ -264,6 +277,7 @@ export class UploadQueue {
 
   renderSparkline(history, peak) {
     const { sparkLine, sparkFill } = this.el;
+    sparkLine?.ownerSVGElement.classList.toggle('is-empty', history.length < 2);
     if (!sparkLine || history.length < 2) {
       if (sparkLine) {
         sparkLine.setAttribute('d', '');
@@ -314,7 +328,7 @@ export class UploadQueue {
         </div>
         <div class="transfer-card-actions">
           <button type="button" class="btn btn-ghost btn-sm transfer-retry" hidden>Retry</button>
-          <button type="button" class="btn btn-ghost btn-icon transfer-cancel" aria-label="Cancel upload">${ICON_X}</button>
+          <button type="button" class="btn btn-ghost btn-icon btn-sm transfer-cancel" aria-label="Cancel upload">${spriteIcon('i-x')}</button>
         </div>
       </div>
       <div class="progress"><div class="progress-bar"></div></div>
@@ -385,8 +399,6 @@ export class UploadQueue {
     for (const id of [...this.cards.keys()]) this.removeCard(id);
     this.engine.reset();
     this.el.panel.hidden = true;
-    document.body.classList.remove('transfer-open');
-    const pill = document.getElementById('statusPillText');
-    if (pill) pill.textContent = 'Idle';
+    this.el.panel.classList.remove('is-collapsed');
   }
 }

@@ -43,26 +43,34 @@ function createSafeContentDisposition(filename) {
 }
 
 /**
+ * Express 5 named wildcards yield an array of decoded path segments.
+ */
+function splatPath(req) {
+  const splat = req.params.splat;
+  return Array.isArray(splat) ? splat.join('/') : String(splat || '');
+}
+
+/**
  * Get file information
  */
-router.get('/info/*', async (req, res) => {
-  const filePath = path.join(config.uploadDir, req.params[0]);
+router.get('/info/*splat', async (req, res) => {
+  const filePath = path.join(config.uploadDir, splatPath(req));
   
   try {
     // Ensure the path is within the upload directory (security check)
     // Use requireExists=true since we're getting info on an existing file
     if (!isPathWithinUploadDir(filePath, config.uploadDir, false)) {
-      logger.warn(`Attempted path traversal attack: ${req.params[0]}`);
+      logger.warn(`Attempted path traversal attack: ${splatPath(req)}`);
       return res.status(403).json({ error: 'Access denied' });
     }
     
     const stats = await fs.stat(filePath);
     const fileInfo = {
-      filename: req.params[0],
+      filename: splatPath(req),
       size: stats.size,
       formattedSize: formatFileSize(stats.size),
       uploadDate: stats.mtime,
-      mimetype: path.extname(req.params[0]).slice(1),
+      mimetype: path.extname(splatPath(req)).slice(1),
       type: stats.isDirectory() ? 'directory' : 'file'
     };
 
@@ -76,17 +84,17 @@ router.get('/info/*', async (req, res) => {
 /**
  * Download file
  */
-router.get('/download/*', async (req, res) => {
+router.get('/download/*splat', async (req, res) => {
   // Get the file path from the wildcard parameter
-  const filePath = path.join(config.uploadDir, req.params[0]);
-  const fileName = path.basename(req.params[0]);
+  const filePath = path.join(config.uploadDir, splatPath(req));
+  const fileName = path.basename(splatPath(req));
   
   try {
     // Ensure the file is within the upload directory (security check)
     // This must be done BEFORE any filesystem operations to prevent path traversal
     // Use requireExists=true since we're downloading an existing file
     if (!isPathWithinUploadDir(filePath, config.uploadDir, false)) {
-      logger.warn(`Attempted path traversal attack: ${req.params[0]}`);
+      logger.warn(`Attempted path traversal attack: ${splatPath(req)}`);
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -108,7 +116,7 @@ router.get('/download/*', async (req, res) => {
       }
     });
     
-    logger.info(`File download started: ${req.params[0]}`);
+    logger.info(`File download started: ${splatPath(req)}`);
   } catch (err) {
     logger.error(`File download failed: ${err.message}`);
     res.status(404).json({ error: 'File not found' });
@@ -232,15 +240,15 @@ function countFiles(items) {
 /**
  * Delete file or directory
  */
-router.delete('/*', async (req, res) => {
+router.delete('/*splat', async (req, res) => {
   // Get the file/directory path from the wildcard parameter
-  const itemPath = path.join(config.uploadDir, req.params[0]);
+  const itemPath = path.join(config.uploadDir, splatPath(req));
   
   try {
     // Ensure the path is within the upload directory (security check)
     // Use requireExists=true since we're deleting an existing file
     if (!isPathWithinUploadDir(itemPath, config.uploadDir, false)) {
-      logger.warn(`Attempted path traversal attack: ${req.params[0]}`);
+      logger.warn(`Attempted path traversal attack: ${splatPath(req)}`);
       return res.status(403).json({ error: 'Access denied' });
     }
     
@@ -250,12 +258,12 @@ router.delete('/*', async (req, res) => {
     if (stats.isDirectory()) {
       // Delete directory recursively
       await fs.rm(itemPath, { recursive: true, force: true });
-      logger.info(`Directory deleted: ${req.params[0]}`);
+      logger.info(`Directory deleted: ${splatPath(req)}`);
       res.json({ message: 'Directory deleted successfully' });
     } else {
       // Delete file
       await fs.unlink(itemPath);
-      logger.info(`File deleted: ${req.params[0]}`);
+      logger.info(`File deleted: ${splatPath(req)}`);
       res.json({ message: 'File deleted successfully' });
     }
   } catch (err) {
@@ -269,22 +277,22 @@ router.delete('/*', async (req, res) => {
 /**
  * Rename file or directory
  */
-router.put('/rename/*', async (req, res) => {
-  const { newName } = req.body;
+router.put('/rename/*splat', async (req, res) => {
+  const { newName } = req.body || {};
   
   if (!newName || typeof newName !== 'string' || newName.trim() === '') {
     return res.status(400).json({ error: 'New name is required' });
   }
   
   // Get the current file/directory path from the wildcard parameter
-  const currentPath = path.join(config.uploadDir, req.params[0]);
+  const currentPath = path.join(config.uploadDir, splatPath(req));
   const currentDir = path.dirname(currentPath);
   
   try {
     // Ensure the current path is within the upload directory (security check)
     // Use requireExists=true since we're renaming an existing file
     if (!isPathWithinUploadDir(currentPath, config.uploadDir, false)) {
-      logger.warn(`Attempted path traversal attack: ${req.params[0]}`);
+      logger.warn(`Attempted path traversal attack: ${splatPath(req)}`);
       return res.status(403).json({ error: 'Access denied' });
     }
     
@@ -327,14 +335,14 @@ router.put('/rename/*', async (req, res) => {
     
     // Log the operation
     const itemType = stats.isDirectory() ? 'Directory' : 'File';
-    logger.info(`${itemType} renamed: "${req.params[0]}" -> "${sanitizedNewName}"`);
+    logger.info(`${itemType} renamed: "${splatPath(req)}" -> "${sanitizedNewName}"`);
     
     // Calculate relative path for response
     const relativePath = path.relative(config.uploadDir, newPath).replace(/\\/g, '/');
     
     res.json({ 
       message: `${itemType} renamed successfully`,
-      oldName: path.basename(req.params[0]),
+      oldName: path.basename(splatPath(req)),
       newName: sanitizedNewName,
       newPath: relativePath
     });

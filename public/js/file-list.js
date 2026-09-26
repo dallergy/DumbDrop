@@ -1,16 +1,23 @@
 /**
  * File library, share links, rename/share dialogs.
- * Folder navigation, sortable table, and overflow menus replace the old tree.
+ * Folder navigation, sortable table, and overflow menus.
  */
 
-import { apiUrl, formatFileSize, escapeHtml, toast, askConfirm } from './utils.js';
+import { apiUrl, formatFileSize, toast, askConfirm, openDialog, closeDialog } from './utils.js';
 import { fileGlyph } from './icons.js';
+
+const spriteIcon = (id) => `<svg class="icon" aria-hidden="true"><use href="#${id}"></use></svg>`;
 
 function formatDate(value) {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
 }
 
 function parentPath(itemPath) {
@@ -19,9 +26,103 @@ function parentPath(itemPath) {
   return parts;
 }
 
+function encodePath(itemPath) {
+  return itemPath.split('/').map(encodeURIComponent).join('/');
+}
+
+function emptyRow(title, detail = '', isError = false) {
+  const tr = document.createElement('tr');
+  tr.className = `empty-row${isError ? ' error' : ''}`;
+  const td = document.createElement('td');
+  td.colSpan = 4;
+  const box = document.createElement('div');
+  box.className = 'empty-state';
+  const strong = document.createElement('strong');
+  strong.textContent = title;
+  box.appendChild(strong);
+  if (detail) {
+    const p = document.createElement('span');
+    p.textContent = detail;
+    box.appendChild(p);
+  }
+  td.appendChild(box);
+  tr.appendChild(td);
+  return tr;
+}
+
+function iconButton(icon, label, handler, extraClass = '') {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = `btn btn-ghost btn-icon btn-sm ${extraClass}`.trim();
+  btn.setAttribute('aria-label', label);
+  btn.title = label;
+  btn.innerHTML = spriteIcon(icon);
+  btn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    handler(btn);
+  });
+  return btn;
+}
+
+/**
+ * Shared overflow menu. Only one is open at a time.
+ */
+function closeMenus() {
+  document.querySelectorAll('.menu').forEach((el) => el.remove());
+}
+
+function openMenu(anchor, entries) {
+  closeMenus();
+  const menu = document.createElement('div');
+  menu.className = 'menu';
+  menu.setAttribute('role', 'menu');
+  entries.forEach((entry) => {
+    if (entry === 'sep') {
+      const sep = document.createElement('div');
+      sep.className = 'menu-sep';
+      menu.appendChild(sep);
+      return;
+    }
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.setAttribute('role', 'menuitem');
+    btn.innerHTML = spriteIcon(entry.icon);
+    btn.append(entry.label);
+    if (entry.danger) btn.classList.add('is-danger');
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      closeMenus();
+      entry.run();
+    });
+    menu.appendChild(btn);
+  });
+  menu.addEventListener('keydown', (event) => {
+    const items = [...menu.querySelectorAll('button')];
+    const index = items.indexOf(document.activeElement);
+    if (event.key === 'ArrowDown') items[(index + 1) % items.length].focus();
+    else if (event.key === 'ArrowUp') items[(index - 1 + items.length) % items.length].focus();
+    else if (event.key === 'Escape') {
+      closeMenus();
+      anchor.focus();
+    } else return;
+    event.preventDefault();
+  });
+  document.body.appendChild(menu);
+  const rect = anchor.getBoundingClientRect();
+  const below = rect.bottom + 4 + menu.offsetHeight <= window.innerHeight - 8;
+  const top = below ? rect.bottom + 4 : rect.top - menu.offsetHeight - 4;
+  const left = Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8);
+  menu.style.top = `${Math.max(8, top)}px`;
+  menu.style.left = `${Math.max(8, left)}px`;
+  menu.querySelector('button')?.focus({ preventScroll: true });
+}
+
+document.addEventListener('click', closeMenus);
+window.addEventListener('resize', closeMenus);
+window.addEventListener('scroll', closeMenus, { passive: true });
+
 export class FileListManager {
   constructor() {
-    this.libraryPanel = document.getElementById('libraryPanel');
     this.uploadedFilesContent = document.getElementById('uploadedFilesContent');
     this.totalFilesSpan = document.getElementById('totalFiles');
     this.totalSizeSpan = document.getElementById('totalSize');
@@ -30,36 +131,39 @@ export class FileListManager {
     this.breadcrumb = document.getElementById('fileBreadcrumb');
     this.renameModal = document.getElementById('renameModal');
     this.renameInput = document.getElementById('renameInput');
+    this.shareModal = document.getElementById('shareModal');
     this.currentRenameData = null;
     this.cwd = [];
     this.items = [];
+    this.loaded = false;
     this.filter = '';
     this.sortKey = 'name';
     this.sortDir = 'asc';
-    this.menu = null;
 
     if (!window.APP_CONFIG?.showFileList) return;
     this.init();
   }
 
   init() {
-    this.libraryPanel.hidden = false;
-    document.body.classList.add('app--library');
-    document.querySelectorAll('.rail-library').forEach((el) => {
-      el.hidden = false;
-    });
     this.refreshBtn.addEventListener('click', () => this.loadFiles());
     this.searchInput?.addEventListener('input', (e) => {
       this.filter = e.target.value.trim().toLowerCase();
       if (this.filter) this.cwd = [];
       this.render();
     });
-    this.renameModal.addEventListener('click', (e) => {
-      if (e.target === this.renameModal) this.cancelRename();
+    this.searchInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.searchInput.value) {
+        e.preventDefault();
+        this.searchInput.value = '';
+        this.filter = '';
+        this.render();
+      }
+    });
+    this.renameModal.addEventListener('close', () => {
+      this.currentRenameData = null;
     });
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.renameModal.classList.contains('open')) this.cancelRename();
-      if (e.key === '/' && e.target === document.body) {
+      if (e.key === '/' && e.target === document.body && document.body.dataset.view === 'files') {
         e.preventDefault();
         this.searchInput?.focus();
       }
@@ -67,9 +171,11 @@ export class FileListManager {
     document.querySelectorAll('.th-sort').forEach((btn) => {
       btn.addEventListener('click', () => this.setSort(btn.dataset.sort));
     });
-    document.addEventListener('click', () => this.closeMenu());
-    window.addEventListener('resize', () => this.closeMenu());
     this.loadFiles();
+  }
+
+  closeMenu() {
+    closeMenus();
   }
 
   setSort(key) {
@@ -86,18 +192,20 @@ export class FileListManager {
 
   async loadFiles() {
     try {
-      this.uploadedFilesContent.innerHTML =
-        '<tr class="empty-row"><td colspan="4">Loading files…</td></tr>';
+      if (!this.loaded) this.uploadedFilesContent.replaceChildren(emptyRow('Loading…'));
+      this.refreshBtn.disabled = true;
       const response = await fetch(apiUrl('/api/files'));
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`Could not load files (HTTP ${response.status})`);
       const data = await response.json();
       this.items = data.items || [];
       this.totalFiles = data.totalFiles;
       this.totalSize = data.totalSize;
-      this.formattedTotalSize = data.formattedTotalSize;
+      this.loaded = true;
       this.render();
     } catch (error) {
-      this.uploadedFilesContent.innerHTML = `<tr class="empty-row error"><td colspan="4">${escapeHtml(error.message)}</td></tr>`;
+      this.uploadedFilesContent.replaceChildren(emptyRow(error.message, '', true));
+    } finally {
+      this.refreshBtn.disabled = false;
     }
   }
 
@@ -137,8 +245,10 @@ export class FileListManager {
   }
 
   render() {
-    this.totalFilesSpan.textContent = String(this.totalFiles ?? 0);
-    this.totalSizeSpan.textContent = this.formattedTotalSize || formatFileSize(this.totalSize);
+    const count = this.totalFiles ?? 0;
+    this.totalFilesSpan.textContent = String(count);
+    this.totalFilesSpan.nextSibling.textContent = count === 1 ? ' file · ' : ' files · ';
+    this.totalSizeSpan.textContent = formatFileSize(this.totalSize);
     this.renderBreadcrumb();
 
     let rows;
@@ -152,29 +262,28 @@ export class FileListManager {
     rows = this.sortItems(rows);
 
     if (!rows.length) {
-      const message = this.filter
-        ? 'No matching files'
+      const empty = this.filter
+        ? emptyRow('No matches', `Nothing named “${this.filter}”.`)
         : this.cwd.length
-          ? 'This folder is empty'
-          : 'Nothing here yet. Drop files anywhere, or use Upload.';
-      this.uploadedFilesContent.innerHTML = `<tr class="empty-row"><td colspan="4"><div class="empty-cta"><p>${escapeHtml(message)}</p></div></td></tr>`;
+          ? emptyRow('This folder is empty')
+          : emptyRow('No files yet', 'Drop files anywhere on this page to upload.');
+      this.uploadedFilesContent.replaceChildren(empty);
       return;
     }
 
-    this.uploadedFilesContent.replaceChildren();
     const frag = document.createDocumentFragment();
     rows.forEach((item) => frag.appendChild(this.createRow(item)));
-    this.uploadedFilesContent.appendChild(frag);
+    this.uploadedFilesContent.replaceChildren(frag);
   }
 
   renderBreadcrumb() {
     if (!this.breadcrumb) return;
     this.breadcrumb.replaceChildren();
-    const root = this.crumbButton('All files', []);
+    const root = this.crumbButton('Files', []);
     if (!this.cwd.length && !this.filter) root.setAttribute('aria-current', 'location');
     this.breadcrumb.appendChild(root);
     if (this.filter) {
-      this.breadcrumb.append(this.crumbSep(), this.crumbLabel(`Search “${this.filter}”`));
+      this.breadcrumb.append(this.crumbSep(), this.crumbLabel(`Results for “${this.filter}”`));
       return;
     }
     this.cwd.forEach((segment, index) => {
@@ -191,6 +300,7 @@ export class FileListManager {
     btn.type = 'button';
     btn.className = 'crumb';
     btn.textContent = label;
+    btn.title = label;
     btn.addEventListener('click', () => {
       this.filter = '';
       if (this.searchInput) this.searchInput.value = '';
@@ -203,7 +313,8 @@ export class FileListManager {
   crumbSep() {
     const sep = document.createElement('span');
     sep.className = 'crumb-sep';
-    sep.innerHTML = '<svg class="icon"><use href="#i-chevron"></use></svg>';
+    sep.setAttribute('aria-hidden', 'true');
+    sep.innerHTML = spriteIcon('i-chevron');
     return sep;
   }
 
@@ -216,19 +327,22 @@ export class FileListManager {
   }
 
   createRow(item) {
+    const isDir = item.type === 'directory';
     const tr = document.createElement('tr');
-    if (item.type === 'directory') tr.className = 'is-dir';
+    if (isDir) tr.className = 'is-dir';
 
     const nameTd = document.createElement('td');
     const cell = document.createElement('div');
     cell.className = 'file-cell';
     const glyph = document.createElement('span');
-    glyph.className = `file-glyph${item.type === 'directory' ? ' is-dir' : ''}`;
+    glyph.className = `file-glyph${isDir ? ' is-dir' : ''}`;
     glyph.innerHTML = fileGlyph(item);
     const text = document.createElement('div');
+    text.className = 'file-text';
     const name = document.createElement('div');
     name.className = 'file-name';
     name.textContent = item.name;
+    name.title = item.name;
     text.appendChild(name);
     if (this.filter && item.path.includes('/')) {
       const path = document.createElement('div');
@@ -236,43 +350,60 @@ export class FileListManager {
       path.textContent = parentPath(item.path).join(' / ');
       text.appendChild(path);
     }
+    const sizeLabel = formatFileSize(item.size);
+    const detail = isDir ? this.folderSummary(item) : formatDate(item.uploadDate);
+    const meta = document.createElement('div');
+    meta.className = 'file-meta';
+    meta.textContent = `${sizeLabel} · ${detail}`;
+    text.appendChild(meta);
     cell.append(glyph, text);
     nameTd.appendChild(cell);
 
     const sizeTd = document.createElement('td');
     sizeTd.className = 'col-size';
-    sizeTd.textContent = item.formattedSize || formatFileSize(item.size);
+    sizeTd.textContent = sizeLabel;
 
     const dateTd = document.createElement('td');
     dateTd.className = 'col-date';
-    dateTd.textContent =
-      item.type === 'directory'
-        ? `${this.countFilesInDirectory(item)} files`
-        : formatDate(item.uploadDate);
+    dateTd.textContent = detail;
 
     const actionTd = document.createElement('td');
     actionTd.className = 'col-actions';
-    const more = document.createElement('button');
-    more.type = 'button';
-    more.className = 'btn btn-ghost btn-icon';
-    more.setAttribute('aria-label', `Actions for ${item.name}`);
-    more.innerHTML = '<svg class="icon"><use href="#i-more"></use></svg>';
-    more.addEventListener('click', (event) => {
-      event.stopPropagation();
-      this.openMenu(more, item);
-    });
-    actionTd.appendChild(more);
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+    if (!isDir) {
+      actions.appendChild(
+        iconButton(
+          'i-download',
+          `Download ${item.name}`,
+          () => this.downloadFile(item.path),
+          'row-quick'
+        )
+      );
+    }
+    actions.appendChild(
+      iconButton('i-link', `Share ${item.name}`, () => this.openShare(item.path), 'row-quick')
+    );
+    actions.appendChild(
+      iconButton('i-more', `More actions for ${item.name}`, (btn) => this.openMenu(btn, item))
+    );
+    actionTd.appendChild(actions);
 
     tr.append(nameTd, sizeTd, dateTd, actionTd);
     tr.addEventListener('click', (event) => {
       if (event.target.closest('button')) return;
-      if (item.type === 'directory') this.openFolder(item);
+      if (isDir) this.openFolder(item);
     });
     tr.addEventListener('dblclick', (event) => {
       if (event.target.closest('button')) return;
-      if (item.type === 'file') this.downloadFile(item.path);
+      if (!isDir) this.downloadFile(item.path);
     });
     return tr;
+  }
+
+  folderSummary(dir) {
+    const files = this.countFilesInDirectory(dir);
+    return `${files} file${files === 1 ? '' : 's'}`;
   }
 
   openFolder(item) {
@@ -283,39 +414,32 @@ export class FileListManager {
   }
 
   openMenu(anchor, item) {
-    this.closeMenu();
-    const menu = document.createElement('div');
-    menu.className = 'menu';
-    menu.setAttribute('role', 'menu');
-    const addItem = (label, handler, danger = false) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.textContent = label;
-      if (danger) btn.classList.add('is-danger');
-      btn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        this.closeMenu();
-        handler();
+    const entries = [];
+    if (item.type === 'file') {
+      entries.push({
+        icon: 'i-download',
+        label: 'Download',
+        run: () => this.downloadFile(item.path),
       });
-      menu.appendChild(btn);
-    };
-    if (item.type === 'file') addItem('Download', () => this.downloadFile(item.path));
-    addItem('Share', () => this.openShare(item.path));
-    addItem('Rename', () => this.renameItem(item.path, item.type, item.name));
-    addItem('Delete', () => this.deleteItem(item.path, item.type), true);
-
-    document.body.appendChild(menu);
-    const rect = anchor.getBoundingClientRect();
-    const top = Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8);
-    const left = Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8);
-    menu.style.top = `${Math.max(8, top)}px`;
-    menu.style.left = `${Math.max(8, left)}px`;
-    this.menu = menu;
-  }
-
-  closeMenu() {
-    document.querySelectorAll('.menu').forEach((el) => el.remove());
-    this.menu = null;
+    } else {
+      entries.push({ icon: 'i-folder', label: 'Open', run: () => this.openFolder(item) });
+    }
+    entries.push(
+      { icon: 'i-link', label: 'Share…', run: () => this.openShare(item.path) },
+      {
+        icon: 'i-pencil',
+        label: 'Rename…',
+        run: () => this.renameItem(item.path, item.type, item.name),
+      },
+      'sep',
+      {
+        icon: 'i-trash',
+        label: 'Delete',
+        danger: true,
+        run: () => this.deleteItem(item.path, item.type),
+      }
+    );
+    openMenu(anchor, entries);
   }
 
   countFilesInDirectory(dir) {
@@ -327,26 +451,30 @@ export class FileListManager {
   }
 
   downloadFile(filePath) {
-    const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
-    window.open(apiUrl(`/api/files/download/${encodedPath}`), '_blank');
+    const link = document.createElement('a');
+    link.href = apiUrl(`/api/files/download/${encodePath(filePath)}`);
+    link.download = filePath.split('/').pop();
+    link.click();
   }
 
   openShare(itemPath) {
     this.currentSharePath = itemPath;
     this.currentShareToken = null;
-    document.getElementById('shareItemName').textContent = itemPath.split('/').pop();
+    document.getElementById('shareItemName').textContent = itemPath;
     document.getElementById('shareForm').hidden = false;
     document.getElementById('shareResult').hidden = true;
     document.getElementById('createShareBtn').hidden = false;
     document.getElementById('copyShareBtn').hidden = true;
     document.getElementById('downloadQrBtn').hidden = true;
+    document.getElementById('closeShareBtn').textContent = 'Cancel';
     document.getElementById('shareAuth').checked = false;
+    document.getElementById('shareAuth').disabled = !window.APP_CONFIG?.pinEnabled;
     document.getElementById('shareExpiry').value = '0';
-    document.getElementById('shareModal').classList.add('open');
+    openDialog(this.shareModal);
   }
 
   closeShare() {
-    document.getElementById('shareModal').classList.remove('open');
+    closeDialog(this.shareModal);
   }
 
   async createShare() {
@@ -373,6 +501,8 @@ export class FileListManager {
       document.getElementById('createShareBtn').hidden = true;
       document.getElementById('copyShareBtn').hidden = false;
       document.getElementById('downloadQrBtn').hidden = false;
+      document.getElementById('closeShareBtn').textContent = 'Done';
+      document.getElementById('copyShareBtn').focus();
       window.dispatchEvent(new CustomEvent('dumbdrop:shares-changed'));
     } catch (error) {
       toast(error.message, false);
@@ -383,8 +513,14 @@ export class FileListManager {
   }
 
   async copyShare() {
-    await navigator.clipboard.writeText(document.getElementById('shareLink').value);
-    toast('Share link copied');
+    const value = document.getElementById('shareLink').value;
+    try {
+      await navigator.clipboard.writeText(value);
+      toast('Link copied');
+    } catch {
+      document.getElementById('shareLink').select();
+      toast('Press Ctrl+C to copy', false);
+    }
   }
 
   downloadShareQr() {
@@ -401,14 +537,15 @@ export class FileListManager {
       title: itemType === 'directory' ? 'Delete folder?' : 'Delete file?',
       message:
         itemType === 'directory'
-          ? `“${itemName}” and everything inside it will be removed.`
+          ? `“${itemName}” and everything inside it will be permanently deleted.`
           : `“${itemName}” will be permanently deleted.`,
       ok: 'Delete',
     });
     if (!ok) return;
     try {
-      const encodedPath = itemPath.split('/').map(encodeURIComponent).join('/');
-      const response = await fetch(apiUrl(`/api/files/${encodedPath}`), { method: 'DELETE' });
+      const response = await fetch(apiUrl(`/api/files/${encodePath(itemPath)}`), {
+        method: 'DELETE',
+      });
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Delete failed');
@@ -422,23 +559,19 @@ export class FileListManager {
 
   renameItem(itemPath, itemType, currentName) {
     this.currentRenameData = { itemPath, itemType, currentName };
+    document.getElementById('renameTitle').textContent =
+      itemType === 'directory' ? 'Rename folder' : 'Rename file';
     this.renameInput.value = currentName;
-    this.renameModal.classList.add('open');
+    openDialog(this.renameModal);
     this.renameInput.focus();
-    this.renameInput.select();
-    this.currentKeydownHandler = (e) => {
-      if (e.key === 'Enter') this.confirmRename();
-    };
-    this.renameInput.addEventListener('keydown', this.currentKeydownHandler);
+    // Select the name without its extension, like desktop file managers do.
+    const dot = currentName.lastIndexOf('.');
+    const end = itemType === 'file' && dot > 0 ? dot : currentName.length;
+    this.renameInput.setSelectionRange(0, end);
   }
 
   cancelRename() {
-    this.renameModal.classList.remove('open');
-    this.currentRenameData = null;
-    if (this.currentKeydownHandler) {
-      this.renameInput.removeEventListener('keydown', this.currentKeydownHandler);
-      this.currentKeydownHandler = null;
-    }
+    closeDialog(this.renameModal);
   }
 
   async confirmRename() {
@@ -450,21 +583,20 @@ export class FileListManager {
       return;
     }
     try {
-      const encodedPath = this.currentRenameData.itemPath
-        .split('/')
-        .map(encodeURIComponent)
-        .join('/');
-      const response = await fetch(apiUrl(`/api/files/rename/${encodedPath}`), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newName }),
-      });
+      const response = await fetch(
+        apiUrl(`/api/files/rename/${encodePath(this.currentRenameData.itemPath)}`),
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newName }),
+        }
+      );
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Rename failed');
       }
       const result = await response.json();
-      toast(result.message);
+      toast(result.message || 'Renamed');
       this.cancelRename();
       this.loadFiles();
     } catch (error) {
@@ -475,14 +607,10 @@ export class FileListManager {
 
 export class ShareLinksManager {
   constructor() {
-    this.section = document.getElementById('shareLinksSection');
     this.content = document.getElementById('shareLinksContent');
     this.totalSharesSpan = document.getElementById('totalShares');
     this.refreshBtn = document.getElementById('refreshSharesBtn');
-    this.filesTab = document.getElementById('filesTab');
-    this.sharesTab = document.getElementById('sharesTab');
-    this.filesPane = document.getElementById('uploadedFilesList');
-    this.sharesPane = this.section;
+    this.editModal = document.getElementById('editShareModal');
     this.editing = null;
     if (!window.APP_CONFIG?.showFileList) return;
 
@@ -492,44 +620,38 @@ export class ShareLinksManager {
       .getElementById('cancelEditShareBtn')
       ?.addEventListener('click', () => this.closeEdit());
     document.getElementById('saveEditShareBtn')?.addEventListener('click', () => this.saveEdit());
-    document.getElementById('editShareModal')?.addEventListener('click', (e) => {
-      if (e.target.id === 'editShareModal') this.closeEdit();
+    this.editModal?.addEventListener('close', () => {
+      this.editing = null;
     });
     this.loadShares();
   }
 
-  showPane(name) {
-    const filesActive = name === 'files';
-    this.filesTab.classList.toggle('active', filesActive);
-    this.sharesTab.classList.toggle('active', !filesActive);
-    this.filesTab.setAttribute('aria-selected', filesActive ? 'true' : 'false');
-    this.sharesTab.setAttribute('aria-selected', filesActive ? 'false' : 'true');
-    this.filesPane.classList.toggle('active', filesActive);
-    this.sharesPane.classList.toggle('active', !filesActive);
-  }
-
   async loadShares() {
     try {
-      this.content.innerHTML =
-        '<tr class="empty-row"><td colspan="4">Loading share links…</td></tr>';
+      if (!this.loaded) this.content.replaceChildren(emptyRow('Loading…'));
       const response = await fetch(apiUrl('/api/files/shares/manage'));
-      if (!response.ok) throw new Error('Failed to load share links');
+      if (!response.ok) throw new Error('Could not load share links');
       const data = await response.json();
+      this.loaded = true;
       this.renderShares(data.shares || []);
     } catch (error) {
-      this.content.innerHTML = `<tr class="empty-row error"><td colspan="4">${escapeHtml(error.message)}</td></tr>`;
+      this.content.replaceChildren(emptyRow(error.message, '', true));
     }
   }
 
   renderShares(shares) {
-    this.totalSharesSpan.textContent = String(shares.length);
+    const active = shares.filter((share) => !share.expired).length;
+    this.totalSharesSpan.textContent = String(active);
+    this.totalSharesSpan.toggleAttribute('data-zero', active === 0);
     if (!shares.length) {
-      this.content.innerHTML =
-        '<tr class="empty-row"><td colspan="4">No share links yet. Share a file from the library.</td></tr>';
+      this.content.replaceChildren(
+        emptyRow('No share links', 'Use the link icon on any file or folder to create one.')
+      );
       return;
     }
-    this.content.replaceChildren();
-    shares.forEach((share) => this.content.appendChild(this.createShareRow(share)));
+    const frag = document.createDocumentFragment();
+    shares.forEach((share) => frag.appendChild(this.createShareRow(share)));
+    this.content.replaceChildren(frag);
   }
 
   createShareRow(share) {
@@ -541,9 +663,11 @@ export class ShareLinksManager {
     glyph.className = `file-glyph${share.type === 'directory' ? ' is-dir' : ''}`;
     glyph.innerHTML = fileGlyph({ type: share.type, name: share.name, extension: '' });
     const text = document.createElement('div');
+    text.className = 'file-text';
     const title = document.createElement('div');
     title.className = 'file-name';
     title.textContent = share.name;
+    title.title = share.name;
     const url = document.createElement('div');
     url.className = 'file-path';
     url.textContent = share.url;
@@ -558,11 +682,11 @@ export class ShareLinksManager {
       badge.className = 'badge badge-muted';
       badge.textContent = 'Expired';
     } else if (share.authRequired) {
-      badge.className = 'badge badge-ok';
+      badge.className = 'badge badge-pin';
       badge.textContent = 'PIN';
     } else {
-      badge.className = 'badge badge-ok';
-      badge.textContent = 'Open';
+      badge.className = 'badge';
+      badge.textContent = 'Public';
     }
     statusTd.appendChild(badge);
 
@@ -572,69 +696,75 @@ export class ShareLinksManager {
 
     const actionTd = document.createElement('td');
     actionTd.className = 'col-actions';
-    const more = document.createElement('button');
-    more.type = 'button';
-    more.className = 'btn btn-ghost btn-icon';
-    more.setAttribute('aria-label', `Actions for ${share.name}`);
-    more.innerHTML = '<svg class="icon"><use href="#i-more"></use></svg>';
-    more.addEventListener('click', (event) => {
-      event.stopPropagation();
-      this.openMenu(more, share);
-    });
-    actionTd.appendChild(more);
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+    if (!share.expired) {
+      actions.appendChild(
+        iconButton('i-link', `Copy link for ${share.name}`, () => this.copyLink(share), 'row-quick')
+      );
+    }
+    actions.appendChild(
+      iconButton('i-more', `More actions for ${share.name}`, (btn) => this.openMenu(btn, share))
+    );
+    actionTd.appendChild(actions);
     tr.append(nameTd, statusTd, expTd, actionTd);
     return tr;
   }
 
-  openMenu(anchor, share) {
-    document.querySelector('.menu')?.remove();
-    const menu = document.createElement('div');
-    menu.className = 'menu';
-    const addItem = (label, handler, danger = false) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.textContent = label;
-      if (danger) btn.classList.add('is-danger');
-      btn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        menu.remove();
-        handler();
-      });
-      menu.appendChild(btn);
-    };
-    addItem('Copy link', async () => {
+  async copyLink(share) {
+    try {
       await navigator.clipboard.writeText(share.url);
       toast('Link copied');
-    });
-    addItem('Download QR', () => {
-      const link = document.createElement('a');
-      link.href = share.qrUrl;
-      link.download = `dumbdrop-share-${share.token.slice(0, 8)}.png`;
-      link.click();
-    });
-    addItem('Edit', () => this.editShare(share));
-    addItem('Delete', () => this.deleteShare(share), true);
-    document.body.appendChild(menu);
-    const rect = anchor.getBoundingClientRect();
-    menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 8)}px`;
-    menu.style.left = `${Math.max(8, rect.right - 168)}px`;
+    } catch {
+      toast('Could not access the clipboard', false);
+    }
+  }
+
+  openMenu(anchor, share) {
+    openMenu(anchor, [
+      { icon: 'i-link', label: 'Copy link', run: () => this.copyLink(share) },
+      {
+        icon: 'i-download',
+        label: 'Download QR code',
+        run: () => {
+          const link = document.createElement('a');
+          link.href = share.qrUrl;
+          link.download = `dumbdrop-share-${share.token.slice(0, 8)}.png`;
+          link.click();
+        },
+      },
+      { icon: 'i-pencil', label: 'Edit…', run: () => this.editShare(share) },
+      'sep',
+      { icon: 'i-trash', label: 'Delete link', danger: true, run: () => this.deleteShare(share) },
+    ]);
   }
 
   editShare(share) {
     this.editing = share;
     document.getElementById('editShareName').textContent = share.name;
     document.getElementById('editShareAuth').checked = Boolean(share.authRequired);
-    document.getElementById('editShareExpiry').value = share.expiresAt ? '86400' : '0';
-    document.getElementById('editShareModal').classList.add('open');
+    document.getElementById('editShareAuth').disabled = !window.APP_CONFIG?.pinEnabled;
+    const expiry = document.getElementById('editShareExpiry');
+    expiry.querySelector('option[value="keep"]')?.remove();
+    if (share.expiresAt && !share.expired) {
+      const keep = document.createElement('option');
+      keep.value = 'keep';
+      keep.textContent = `Keep (${formatDate(share.expiresAt)})`;
+      expiry.prepend(keep);
+      expiry.value = 'keep';
+    } else {
+      expiry.value = '0';
+    }
+    openDialog(this.editModal);
   }
 
   closeEdit() {
-    this.editing = null;
-    document.getElementById('editShareModal').classList.remove('open');
+    closeDialog(this.editModal);
   }
 
   async saveEdit() {
     if (!this.editing) return;
+    const expiryValue = document.getElementById('editShareExpiry').value;
     const response = await fetch(
       apiUrl(`/api/files/shares/${encodeURIComponent(this.editing.token)}`),
       {
@@ -642,7 +772,8 @@ export class ShareLinksManager {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           authRequired: document.getElementById('editShareAuth').checked,
-          expiresIn: Number(document.getElementById('editShareExpiry').value),
+          // Omitting expiresIn keeps the current expiry on the server.
+          ...(expiryValue === 'keep' ? {} : { expiresIn: Number(expiryValue) }),
         }),
       }
     );
@@ -651,7 +782,7 @@ export class ShareLinksManager {
       toast(error.error || 'Update failed', false);
       return;
     }
-    toast('Share link updated');
+    toast('Link updated');
     this.closeEdit();
     this.loadShares();
   }
@@ -659,8 +790,8 @@ export class ShareLinksManager {
   async deleteShare(share) {
     const ok = await askConfirm({
       title: 'Delete share link?',
-      message: `People with the link for “${share.name}” will lose access.`,
-      ok: 'Delete',
+      message: `Anyone with the link to “${share.name}” will lose access. The file itself is kept.`,
+      ok: 'Delete link',
     });
     if (!ok) return;
     const response = await fetch(apiUrl(`/api/files/shares/${encodeURIComponent(share.token)}`), {
@@ -671,7 +802,7 @@ export class ShareLinksManager {
       toast(error.error || 'Delete failed', false);
       return;
     }
-    toast('Share link deleted');
+    toast('Link deleted');
     this.loadShares();
   }
 }

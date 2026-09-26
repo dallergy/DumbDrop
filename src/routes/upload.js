@@ -326,7 +326,7 @@ if (!process.env.DISABLE_BATCH_CLEANUP) {
 router.post('/init', async (req, res) => {
   // DEMO MODE CHECK - Bypass persistence if in demo mode
   if (isDemoMode()) {
-    const { filename, fileSize } = req.body;
+    const { filename, fileSize } = req.body || {};
     const sanitizedDemoFilename = sanitizePathPreserveDirsSafe(filename);
     const uploadId = 'demo-' + crypto.randomBytes(16).toString('hex');
     
@@ -344,7 +344,7 @@ router.post('/init', async (req, res) => {
     return res.json({ uploadId, maxChunkBytes: MAX_CHUNK_BYTES });
   }
 
-  const { filename, fileSize } = req.body;
+  const { filename, fileSize } = req.body || {};
   const clientBatchId = req.headers['x-batch-id'];
 
   // --- Basic validations ---

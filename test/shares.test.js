@@ -122,6 +122,8 @@ describe('Share API Tests', () => {
     assert.strictEqual(response.data.name, 'share-folder');
     assert.ok(Array.isArray(response.data.items));
     assert.ok(response.data.items.some((item) => item.name === 'inside.txt'));
+    // Folder size is the sum of its contents, not the directory inode size.
+    assert.strictEqual(response.data.size, Buffer.byteLength('Nested file'));
   });
 
   it('should download an individual file from a shared folder', async () => {
