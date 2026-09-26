@@ -485,4 +485,4 @@ Got an idea? [Open an issue](https://github.com/dallergy/DumbDrop/issues) or [su
 
 ---
 
-Maintained fork of [DumbDrop](https://github.com/dumbwareio/dumbdrop) by [DumbWare.io](https://dumbware.io), whose original project is now archived.
+Maintained fork of [DumbDrop](https://github.com/dumbwareio/dumbdrop) by [DumbWare.io](https://dumbware.io), cause I needed some extra features
