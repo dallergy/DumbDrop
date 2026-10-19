@@ -9,6 +9,7 @@ const path = require('path');
 const logger = require('./logger');
 const { config } = require('../config');
 const { cleanupExpiredShares } = require('../routes/shares');
+const { releaseReservation } = require('./storageQuota');
 
 const METADATA_DIR = path.join(config.uploadDir, '.metadata');
 const UPLOAD_TIMEOUT = config.uploadTimeout || 30 * 60 * 1000; // Use a config or default (e.g., 30 mins)
@@ -42,9 +43,9 @@ async function executeCleanup(timeout = 1000) {
     logger.info('No cleanup tasks to execute');
     return;
   }
-  
+
   logger.info(`Executing ${taskCount} cleanup tasks...`);
-  
+
   try {
     // Run all cleanup tasks in parallel with timeout
     await Promise.race([
@@ -53,9 +54,9 @@ async function executeCleanup(timeout = 1000) {
           try {
             await Promise.race([
               task(),
-              new Promise((_, reject) => 
+              new Promise((_, reject) =>
                 setTimeout(() => reject(new Error('Task timeout')), timeout / 2)
-              )
+              ),
             ]);
           } catch (error) {
             if (error.message === 'Task timeout') {
@@ -66,11 +67,9 @@ async function executeCleanup(timeout = 1000) {
           }
         })
       ),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Global timeout')), timeout)
-      )
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Global timeout')), timeout)),
     ]);
-    
+
     logger.info('Cleanup completed successfully');
   } catch (error) {
     if (error.message === 'Global timeout') {
@@ -117,7 +116,9 @@ async function cleanupIncompleteUploads(uploads, uploadToBatch, batchActivity) {
             logger.info(`Cleaned up incomplete upload: ${upload.safeFilename}`);
           } catch (err) {
             if (err.code !== 'ENOENT') {
-              logger.error(`Failed to delete incomplete upload ${upload.safeFilename}: ${err.message}`);
+              logger.error(
+                `Failed to delete incomplete upload ${upload.safeFilename}: ${err.message}`
+              );
             }
           }
 
@@ -132,7 +133,6 @@ async function cleanupIncompleteUploads(uploads, uploadToBatch, batchActivity) {
 
     // Clean up empty folders
     await cleanupEmptyFolders(config.uploadDir);
-
   } catch (err) {
     logger.error(`Cleanup error: ${err.message}`);
   }
@@ -173,7 +173,9 @@ async function cleanupIncompleteMetadataUploads() {
 
           // Check inactivity based on lastActivity timestamp in metadata
           if (now - (metadata.lastActivity || metadata.createdAt || 0) > UPLOAD_TIMEOUT) {
-            logger.warn(`Found stale upload metadata: ${file}. Last activity: ${new Date(metadata.lastActivity || metadata.createdAt)}`);
+            logger.warn(
+              `Found stale upload metadata: ${file}. Last activity: ${new Date(metadata.lastActivity || metadata.createdAt)}`
+            );
 
             // Attempt to delete partial file
             if (metadata.partialFilePath) {
@@ -181,8 +183,11 @@ async function cleanupIncompleteMetadataUploads() {
                 await fs.unlink(metadata.partialFilePath);
                 logger.info(`Deleted stale partial file: ${metadata.partialFilePath}`);
               } catch (unlinkPartialErr) {
-                if (unlinkPartialErr.code !== 'ENOENT') { // Ignore if already gone
-                  logger.error(`Failed to delete stale partial file ${metadata.partialFilePath}: ${unlinkPartialErr.message}`);
+                if (unlinkPartialErr.code !== 'ENOENT') {
+                  // Ignore if already gone
+                  logger.error(
+                    `Failed to delete stale partial file ${metadata.partialFilePath}: ${unlinkPartialErr.message}`
+                  );
                 }
               }
             }
@@ -190,15 +195,19 @@ async function cleanupIncompleteMetadataUploads() {
             // Attempt to delete metadata file
             try {
               await fs.unlink(metaFilePath);
+              await releaseReservation(metadata.uploadId || path.basename(file, '.meta'));
               logger.info(`Deleted stale metadata file: ${file}`);
               cleanedCount++;
             } catch (unlinkMetaErr) {
-              logger.error(`Failed to delete stale metadata file ${metaFilePath}: ${unlinkMetaErr.message}`);
+              logger.error(
+                `Failed to delete stale metadata file ${metaFilePath}: ${unlinkMetaErr.message}`
+              );
             }
-
           }
         } catch (readErr) {
-          logger.error(`Error reading or parsing metadata file ${metaFilePath} during cleanup: ${readErr.message}. Skipping.`);
+          logger.error(
+            `Error reading or parsing metadata file ${metaFilePath} during cleanup: ${readErr.message}. Skipping.`
+          );
           // Optionally attempt to delete the corrupt meta file?
           // await fs.unlink(metaFilePath).catch(()=>{});
         }
@@ -207,22 +216,27 @@ async function cleanupIncompleteMetadataUploads() {
         const tempMetaPath = path.join(METADATA_DIR, file);
         try {
           const stats = await fs.stat(tempMetaPath);
-          if (now - stats.mtime.getTime() > UPLOAD_TIMEOUT) { // If temp file is also old
+          if (now - stats.mtime.getTime() > UPLOAD_TIMEOUT) {
+            // If temp file is also old
             logger.warn(`Deleting stale temporary metadata file: ${file}`);
             await fs.unlink(tempMetaPath);
           }
         } catch (statErr) {
-          if (statErr.code !== 'ENOENT') { // Ignore if already gone
-            logger.error(`Error checking temporary metadata file ${tempMetaPath}: ${statErr.message}`);
+          if (statErr.code !== 'ENOENT') {
+            // Ignore if already gone
+            logger.error(
+              `Error checking temporary metadata file ${tempMetaPath}: ${statErr.message}`
+            );
           }
         }
       }
     }
 
     if (checkedCount > 0 || cleanedCount > 0) {
-      logger.info(`Metadata cleanup finished. Checked: ${checkedCount}, Cleaned stale: ${cleanedCount}.`);
+      logger.info(
+        `Metadata cleanup finished. Checked: ${checkedCount}, Cleaned stale: ${cleanedCount}.`
+      );
     }
-
   } catch (err) {
     // Handle errors reading the METADATA_DIR itself
     if (err.code === 'ENOENT') {
@@ -244,7 +258,7 @@ let metadataCleanupTimer;
 if (!process.env.DISABLE_BATCH_CLEANUP) {
   metadataCleanupTimer = setInterval(cleanupIncompleteMetadataUploads, METADATA_CLEANUP_INTERVAL);
   metadataCleanupTimer.unref(); // Allow process to exit if this is the only timer
-  
+
   process.on('SIGTERM', () => clearInterval(metadataCleanupTimer));
   process.on('SIGINT', () => clearInterval(metadataCleanupTimer));
 }
@@ -297,8 +311,11 @@ async function cleanupEmptyFolders(dir) {
               await fs.rmdir(fullPath);
               logger.info(`Removed empty directory: ${fullPath}`);
             } catch (rmErr) {
-              if (rmErr.code !== 'ENOENT') { // Ignore if already deleted
-                logger.error(`Failed to remove supposedly empty directory ${fullPath}: ${rmErr.message}`);
+              if (rmErr.code !== 'ENOENT') {
+                // Ignore if already deleted
+                logger.error(
+                  `Failed to remove supposedly empty directory ${fullPath}: ${rmErr.message}`
+                );
               }
             }
           }
@@ -306,7 +323,8 @@ async function cleanupEmptyFolders(dir) {
       }
     }
   } catch (err) {
-    if (err.code !== 'ENOENT') { // Ignore if dir was already deleted
+    if (err.code !== 'ENOENT') {
+      // Ignore if dir was already deleted
       logger.error(`Failed to clean empty folders in ${dir}: ${err.message}`);
     }
   }
@@ -318,5 +336,5 @@ module.exports = {
   executeCleanup,
   cleanupIncompleteUploads,
   cleanupIncompleteMetadataUploads,
-  cleanupEmptyFolders
-}; 
+  cleanupEmptyFolders,
+};

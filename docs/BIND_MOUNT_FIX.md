@@ -178,7 +178,7 @@ volumes:
 The fix maintains security while improving compatibility:
 
 1. **Path traversal protection**: Still detects and blocks `../` attempts
-2. **Symlink security**: For existing files, symlinks are resolved and validated
+2. **Symlink security**: Existing files are resolved with `realpath`. Paths that do not exist yet still reject a symlink ancestor that points outside the upload directory, so a link cannot be used as a download, delete, rename, or upload target.
 3. **Drive separation** (Windows): Files on different drives are rejected
 4. **Upload directory validation**: Upload directory must exist and be accessible
 5. **Consistent validation**: Same validation logic used across all routes

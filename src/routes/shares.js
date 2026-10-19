@@ -10,7 +10,9 @@ const fs = require('fs');
 const fsp = fs.promises;
 const QRCode = require('qrcode');
 const { config } = require('../config');
-const { safeCompare } = require('../utils/security');
+const { safeCompare, isLockedOut, recordAttempt, resetAttempts } = require('../utils/security');
+const { getClientIp } = require('../utils/ipExtractor');
+const { secureCookie } = require('../middleware/security');
 const { isPathWithinUploadDir, formatFileSize } = require('../utils/fileUtils');
 const { getOrCreateShareZip, deleteShareArchive } = require('../utils/shareArchives');
 
@@ -34,8 +36,48 @@ async function writeShares(shares) {
   await fsp.rename(temporary, storePath);
 }
 
-function grantFor(token) {
-  return crypto.createHmac('sha256', config.pin || 'no-pin').update(token).digest('hex');
+function newGrant() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/**
+ * Share records returned to clients. The grant cookie secret stays server-side.
+ */
+function toShareResponse(share, extra = {}) {
+  return {
+    token: share.token,
+    path: share.path,
+    name: share.name,
+    type: share.type,
+    authRequired: share.authRequired,
+    createdAt: share.createdAt,
+    expiresAt: share.expiresAt,
+    ...extra,
+  };
+}
+
+/**
+ * Public share routes do not require the owner PIN.
+ * Management routes (list, create, update, delete) do.
+ * Accepts either the full URL path or the path Express exposes inside the mount.
+ * @param {string} method
+ * @param {string} requestPath
+ * @returns {boolean}
+ */
+function isPublicShareRequest(method, requestPath) {
+  const pathname = String(requestPath || '').split('?')[0];
+  const prefix = '/api/shares';
+  let subpath = pathname;
+  if (pathname === prefix) subpath = '/';
+  else if (pathname.startsWith(`${prefix}/`)) subpath = pathname.slice(prefix.length);
+
+  if (method === 'GET') {
+    return /^\/(?!manage(?:\/|$))[^/]+(?:\/(?:qr\.png|download|file(?:\/.*)?))?$/.test(subpath);
+  }
+  if (method === 'POST') {
+    return /^\/[^/]+\/auth$/.test(subpath);
+  }
+  return false;
 }
 
 function shareUrl(token) {
@@ -63,7 +105,7 @@ function hasAccess(req, share) {
     return true;
   }
   const grant = req.cookies?.[`DUMBDROP_SHARE_${share.token}`];
-  return Boolean(grant && safeCompare(grant, grantFor(share.token)));
+  return Boolean(share.grant && grant && safeCompare(grant, share.grant));
 }
 
 async function resolveShare(req, res, next) {
@@ -168,7 +210,8 @@ async function cleanupExpiredShares() {
 
 router.post('/', async (req, res, next) => {
   try {
-    const relativePath = typeof req.body?.path === 'string' ? req.body?.path.replace(/\\/g, '/') : '';
+    const relativePath =
+      typeof req.body?.path === 'string' ? req.body?.path.replace(/\\/g, '/') : '';
     const itemPath = path.join(config.uploadDir, relativePath);
     if (!relativePath || !isPathWithinUploadDir(itemPath, config.uploadDir, true)) {
       return res.status(400).json({ error: 'Choose an existing file or folder.' });
@@ -177,27 +220,31 @@ router.post('/', async (req, res, next) => {
     const stats = await fsp.stat(itemPath);
     const expiresIn = Number(req.body?.expiresIn || 0);
     const token = crypto.randomBytes(18).toString('base64url');
+    const authRequired = Boolean(req.body?.authRequired && config.pin);
     const share = {
       token,
       path: relativePath,
       name: path.basename(relativePath),
       type: stats.isDirectory() ? 'directory' : 'file',
-      authRequired: Boolean(req.body?.authRequired && config.pin),
+      authRequired,
+      grant: authRequired ? newGrant() : undefined,
       createdAt: new Date().toISOString(),
-      expiresAt: expiresIn > 0
-        ? new Date(Date.now() + Math.min(expiresIn, 30 * 86400) * 1000).toISOString()
-        : null,
+      expiresAt:
+        expiresIn > 0
+          ? new Date(Date.now() + Math.min(expiresIn, 30 * 86400) * 1000).toISOString()
+          : null,
     };
 
     const shares = await readShares();
     shares[token] = share;
     await writeShares(shares);
 
-    res.status(201).json({
-      ...share,
-      url: shareUrl(token),
-      qrUrl: `/api/shares/${token}/qr.png`,
-    });
+    res.status(201).json(
+      toShareResponse(share, {
+        url: shareUrl(token),
+        qrUrl: `/api/shares/${token}/qr.png`,
+      })
+    );
   } catch (error) {
     next(error);
   }
@@ -207,12 +254,13 @@ router.get('/manage', async (req, res, next) => {
   try {
     const shares = await readShares();
     const list = Object.values(shares)
-      .map((share) => ({
-        ...share,
-        url: shareUrl(share.token),
-        qrUrl: `/api/shares/${share.token}/qr.png`,
-        expired: isShareExpired(share),
-      }))
+      .map((share) =>
+        toShareResponse(share, {
+          url: shareUrl(share.token),
+          qrUrl: `/api/shares/${share.token}/qr.png`,
+          expired: isShareExpired(share),
+        })
+      )
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
 
     res.json({ shares: list });
@@ -231,23 +279,32 @@ router.patch('/:token', async (req, res, next) => {
 
     if (req.body?.expiresIn !== undefined) {
       const expiresIn = Number(req.body?.expiresIn);
-      share.expiresAt = expiresIn > 0
-        ? new Date(Date.now() + Math.min(expiresIn, 30 * 86400) * 1000).toISOString()
-        : null;
+      share.expiresAt =
+        expiresIn > 0
+          ? new Date(Date.now() + Math.min(expiresIn, 30 * 86400) * 1000).toISOString()
+          : null;
     }
 
     if (req.body?.authRequired !== undefined) {
-      share.authRequired = Boolean(req.body?.authRequired && config.pin);
+      const nextAuth = Boolean(req.body?.authRequired && config.pin);
+      // A new grant drops cookies issued before the flag changed.
+      if (nextAuth !== Boolean(share.authRequired)) {
+        share.grant = nextAuth ? newGrant() : undefined;
+      } else if (nextAuth && !share.grant) {
+        share.grant = newGrant();
+      }
+      share.authRequired = nextAuth;
     }
 
     shares[req.params.token] = share;
     await writeShares(shares);
 
-    res.json({
-      ...share,
-      url: shareUrl(share.token),
-      qrUrl: `/api/shares/${share.token}/qr.png`,
-    });
+    res.json(
+      toShareResponse(share, {
+        url: shareUrl(share.token),
+        qrUrl: `/api/shares/${share.token}/qr.png`,
+      })
+    );
   } catch (error) {
     next(error);
   }
@@ -291,22 +348,47 @@ router.get('/:token', resolveShare, async (req, res, next) => {
   }
 });
 
-router.post('/:token/auth', resolveShare, (req, res) => {
-  if (!req.share.authRequired) {
-    return res.json({ authenticated: true });
-  }
-  if (!config.pin || typeof req.body?.pin !== 'string' || !safeCompare(req.body?.pin, config.pin)) {
-    return res.status(401).json({ error: 'Incorrect PIN.' });
-  }
+router.post('/:token/auth', resolveShare, async (req, res, next) => {
+  try {
+    if (!req.share.authRequired) {
+      return res.json({ authenticated: true });
+    }
 
-  res.cookie(`DUMBDROP_SHARE_${req.share.token}`, grantFor(req.share.token), {
-    httpOnly: true,
-    sameSite: 'strict',
-    secure: req.secure,
-    path: `/api/shares/${req.share.token}`,
-    maxAge: 24 * 3600 * 1000,
-  });
-  res.json({ authenticated: true });
+    const ip = getClientIp(req);
+    if (isLockedOut(ip)) {
+      return res.status(429).json({ error: 'Too many attempts' });
+    }
+
+    const pin = req.body?.pin;
+    if (!config.pin || typeof pin !== 'string' || !safeCompare(pin, config.pin)) {
+      // This route is only called to attempt a PIN, so empty guesses count too.
+      recordAttempt(ip);
+      return res.status(401).json({ error: 'Incorrect PIN.' });
+    }
+
+    resetAttempts(ip);
+
+    if (!req.share.grant) {
+      const shares = await readShares();
+      const current = shares[req.share.token];
+      if (current) {
+        current.grant = newGrant();
+        req.share.grant = current.grant;
+        await writeShares(shares);
+      }
+    }
+
+    res.cookie(`DUMBDROP_SHARE_${req.share.token}`, req.share.grant, {
+      httpOnly: true,
+      sameSite: 'strict',
+      secure: secureCookie(req),
+      path: `/api/shares/${req.share.token}`,
+      maxAge: 24 * 3600 * 1000,
+    });
+    res.json({ authenticated: true });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // Paths are validated before sending; ZIP caches live under .metadata, which
@@ -367,4 +449,5 @@ module.exports = {
   writeShares,
   removeShare,
   cleanupExpiredShares,
+  isPublicShareRequest,
 };

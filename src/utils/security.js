@@ -27,7 +27,7 @@ function startCleanupInterval() {
   if (cleanupInterval) {
     clearInterval(cleanupInterval);
   }
-  
+
   cleanupInterval = setInterval(() => {
     const now = Date.now();
     let cleaned = 0;
@@ -41,7 +41,7 @@ function startCleanupInterval() {
       logger.info(`Cleaned up ${cleaned} expired lockouts`);
     }
   }, 60000); // Check every minute
-  
+
   return cleanupInterval;
 }
 
@@ -65,8 +65,17 @@ if (!process.env.DISABLE_BATCH_CLEANUP && !process.env.DISABLE_SECURITY_CLEANUP)
  * @param {string} ip - IP address
  */
 function resetAttempts(ip) {
+  // Successful API calls hit this on every request; only log when a counter existed.
+  if (!loginAttempts.has(ip)) return;
   loginAttempts.delete(ip);
   logger.info(`Reset login attempts for IP: ${ip}`);
+}
+
+/**
+ * Drop every lockout counter. Used by tests so cases do not share attempts.
+ */
+function clearLoginAttempts() {
+  loginAttempts.clear();
 }
 
 /**
@@ -77,7 +86,7 @@ function resetAttempts(ip) {
 function isLockedOut(ip) {
   const attempts = loginAttempts.get(ip);
   if (!attempts) return false;
-  
+
   if (attempts.count >= MAX_ATTEMPTS) {
     const timeElapsed = Date.now() - attempts.lastAttempt;
     if (timeElapsed < LOCKOUT_DURATION) {
@@ -114,7 +123,8 @@ function validatePin(pin) {
 }
 
 /**
- * Compare two strings in constant time
+ * Compare two strings in constant time.
+ * Digests are fixed length, so a shorter value padded with spaces cannot match.
  * @param {string} a - First string
  * @param {string} b - Second string
  * @returns {boolean} True if strings match
@@ -123,26 +133,21 @@ function safeCompare(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') {
     return false;
   }
-  
-  try {
-    return crypto.timingSafeEqual(
-      Buffer.from(a.padEnd(32)),
-      Buffer.from(b.padEnd(32))
-    );
-  } catch (err) {
-    logger.error(`Safe compare error: ${err.message}`);
-    return false;
-  }
+
+  const left = crypto.createHash('sha256').update(a, 'utf8').digest();
+  const right = crypto.createHash('sha256').update(b, 'utf8').digest();
+  return crypto.timingSafeEqual(left, right);
 }
 
 module.exports = {
   MAX_ATTEMPTS,
   LOCKOUT_DURATION,
   resetAttempts,
+  clearLoginAttempts,
   isLockedOut,
   recordAttempt,
   validatePin,
   safeCompare,
   startCleanupInterval,
-  stopCleanupInterval
-}; 
+  stopCleanupInterval,
+};

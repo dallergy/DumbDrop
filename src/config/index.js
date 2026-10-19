@@ -15,7 +15,10 @@ const fs = require('fs'); // Get version from package.json
  * MAX_FILE_SIZE       - Max upload size in MB (default: 1024)
  * AUTO_UPLOAD         - Enable auto-upload (true/false, default: false)
  * SHOW_FILE_LIST      - Enable file listing in frontend (true/false, default: false)
- * DUMBDROP_PIN        - Security PIN for uploads (required for protected endpoints)
+ * UPLOAD_ONLY         - Disable list, download, rename, delete, and shares (true/false)
+ * MAX_STORAGE_MB      - Total upload-directory quota in MB (0 or unset = unlimited)
+ * DUMBDROP_PIN        - Security PIN for uploads (required in production)
+ * ALLOW_INSECURE_NO_PIN - Set true to boot production without a PIN
  * DUMBDROP_TITLE      - Site title (default: 'DumbDrop')
  * APPRISE_URL         - Apprise notification URL (optional)
  * APPRISE_MESSAGE     - Notification message template (default provided)
@@ -96,7 +99,10 @@ function ensureLocalUploadDirExists(uploadDir) {
       logConfig(`Local upload directory exists: ${uploadDir}`);
     }
   } catch (err) {
-    logConfig(`Failed to create local upload directory: ${uploadDir}. Error: ${err.message}`, 'warning');
+    logConfig(
+      `Failed to create local upload directory: ${uploadDir}. Error: ${err.message}`,
+      'warning'
+    );
   }
 }
 
@@ -128,7 +134,7 @@ const config = {
    * Set via BASE_URL in .env
    */
   baseUrl: BASE_URL,
-  
+
   // =====================
   // =====================
   // Upload settings
@@ -159,7 +165,25 @@ const config = {
    * Set via SHOW_FILE_LIST in .env
    */
   showFileList: process.env.SHOW_FILE_LIST === 'true',
-  
+  /**
+   * Upload-only mode hides listing, download, rename, delete, and shares.
+   * Set via UPLOAD_ONLY=true. Uploads, auth, health, and static assets stay up.
+   */
+  uploadOnly: process.env.UPLOAD_ONLY === 'true',
+  /**
+   * Total bytes allowed in the upload directory (0 = unlimited).
+   * Set via MAX_STORAGE_MB. In-progress uploads count against the cap.
+   */
+  maxStorageBytes: (() => {
+    const raw = process.env.MAX_STORAGE_MB;
+    if (raw === undefined || raw === '') return 0;
+    const sizeInMB = Number(raw);
+    if (!Number.isFinite(sizeInMB) || sizeInMB < 0) {
+      throw new Error('MAX_STORAGE_MB must be a non-negative number');
+    }
+    return Math.floor(sizeInMB * 1024 * 1024);
+  })(),
+
   // =====================
   // =====================
   // Security
@@ -180,10 +204,10 @@ const config = {
    * Restricts which proxies can set X-Forwarded-For header
    * Set via TRUSTED_PROXY_IPS in .env
    */
-  trustedProxyIps: process.env.TRUSTED_PROXY_IPS ? 
-    process.env.TRUSTED_PROXY_IPS.split(',').map(ip => ip.trim()) : 
-    null,
-  
+  trustedProxyIps: process.env.TRUSTED_PROXY_IPS
+    ? process.env.TRUSTED_PROXY_IPS.split(',').map((ip) => ip.trim())
+    : null,
+
   // =====================
   // =====================
   // UI settings
@@ -193,7 +217,7 @@ const config = {
    * Set via DUMBDROP_TITLE in .env
    */
   siteTitle: process.env.DUMBDROP_TITLE || DEFAULT_SITE_TITLE,
-  
+
   // =====================
   // =====================
   // Notification settings
@@ -207,13 +231,15 @@ const config = {
    * Notification message template (default provided)
    * Set via APPRISE_MESSAGE in .env
    */
-  appriseMessage: process.env.APPRISE_MESSAGE || 'New file uploaded - {filename} ({size}), Storage used {storage}',
+  appriseMessage:
+    process.env.APPRISE_MESSAGE ||
+    'New file uploaded - {filename} ({size}), Storage used {storage}',
   /**
    * Size unit for notifications (optional)
    * Set via APPRISE_SIZE_UNIT in .env
    */
   appriseSizeUnit: process.env.APPRISE_SIZE_UNIT,
-  
+
   // =====================
   // =====================
   // File extensions
@@ -222,9 +248,9 @@ const config = {
    * Allowed file extensions (comma-separated, optional)
    * Set via ALLOWED_EXTENSIONS in .env
    */
-  allowedExtensions: process.env.ALLOWED_EXTENSIONS ? 
-    process.env.ALLOWED_EXTENSIONS.split(',').map(ext => ext.trim().toLowerCase()) : 
-    null,
+  allowedExtensions: process.env.ALLOWED_EXTENSIONS
+    ? process.env.ALLOWED_EXTENSIONS.split(',').map((ext) => ext.trim().toLowerCase())
+    : null,
 
   /**
    * Max number of retries for client-side chunk uploads (default: 5)
@@ -240,7 +266,7 @@ const config = {
     if (isNaN(retries) || retries < 0) {
       logConfig(
         `Invalid CLIENT_MAX_RETRIES value: "${envValue}". Using default: ${defaultValue}`,
-        'warning',
+        'warning'
       );
       return logAndReturn('CLIENT_MAX_RETRIES', defaultValue, true);
     }
@@ -276,7 +302,7 @@ console.log(`Upload directory configured as: ${config.uploadDir}`);
 // Validate required settings
 function validateConfig() {
   const errors = [];
-  
+
   if (config.maxFileSize <= 0) {
     errors.push('MAX_FILE_SIZE must be greater than 0');
   }
@@ -293,13 +319,21 @@ function validateConfig() {
     logger.error(errorMsg);
     errors.push(errorMsg);
   }
-  
+
   if (config.nodeEnv === 'production') {
     if (!config.appriseUrl) {
       logger.info('Notifications disabled - No Configuration');
     }
+    // Read at call time so tests can opt out before initialize().
+    const allowInsecureNoPin = process.env.ALLOW_INSECURE_NO_PIN === 'true';
+    if (!config.pin && !allowInsecureNoPin) {
+      errors.push(
+        'DUMBDROP_PIN is required when NODE_ENV=production. ' +
+          'Set a 4-10 digit PIN, or set ALLOW_INSECURE_NO_PIN=true to disable authentication.'
+      );
+    }
   }
-  
+
   if (errors.length > 0) {
     throw new Error('Configuration validation failed:\n' + errors.join('\n'));
   }
@@ -310,5 +344,5 @@ Object.freeze(config);
 
 module.exports = {
   config,
-  validateConfig
-}; 
+  validateConfig,
+};

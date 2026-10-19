@@ -138,6 +138,11 @@ if (dropHint) {
   const limit = Number(window.APP_CONFIG.maxFileSize);
   const parts = [];
   if (Number.isFinite(limit) && limit > 0) parts.push(`Up to ${formatFileSize(limit)} per file`);
+  const storageCap = Number(window.APP_CONFIG.maxStorageBytes);
+  if (Number.isFinite(storageCap) && storageCap > 0) {
+    parts.push(`${formatFileSize(storageCap)} storage cap`);
+  }
+  if (window.APP_CONFIG.uploadOnly) parts.push('Upload only');
   if (window.APP_CONFIG.autoUpload) parts.push('Uploads start immediately');
   dropHint.textContent = parts.join(' · ');
 }

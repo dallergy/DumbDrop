@@ -17,9 +17,16 @@ const logger = require('./utils/logger');
 const { ensureDirectoryExists } = require('./utils/fileUtils');
 const { getHelmetConfig, requirePin } = require('./middleware/security');
 const { safeCompare } = require('./utils/security');
-const { initUploadLimiter, chunkUploadLimiter, pinVerifyLimiter, pinStatusLimiter, downloadLimiter } = require('./middleware/rateLimiter');
+const {
+  initUploadLimiter,
+  chunkUploadLimiter,
+  pinVerifyLimiter,
+  pinStatusLimiter,
+  downloadLimiter,
+} = require('./middleware/rateLimiter');
 const { injectDemoBanner, demoMiddleware } = require('./utils/demoMode');
 const { originValidationMiddleware, getCorsOptions } = require('./middleware/cors');
+const { isPublicShareRequest } = require('./routes/shares');
 
 // Create Express app
 const app = express();
@@ -35,7 +42,9 @@ if (config.trustProxy) {
   } else {
     // Trust first proxy only
     app.set('trust proxy', 1);
-    logger.warn('Proxy trust enabled for first proxy - ensure reverse proxy is properly configured');
+    logger.warn(
+      'Proxy trust enabled for first proxy - ensure reverse proxy is properly configured'
+    );
   }
 } else {
   // Secure default: do not trust proxy headers
@@ -69,12 +78,15 @@ app.use((req, res, next) => {
     '/service-worker.js',
     '/share/',
     '/share.html',
-    '/api/shares/',
   ];
 
-  // Check if the current path matches any of the public paths
-  if (publicPaths.some(path => req.path.startsWith(path))) {
-      return next();
+  // Token read routes stay public. Management routes stay on the auth path
+  // so a missing PIN cannot list or rewrite shares.
+  if (
+    publicPaths.some((path) => req.path.startsWith(path)) ||
+    isPublicShareRequest(req.method, req.originalUrl || req.path)
+  ) {
+    return next();
   }
 
   // For all other paths, apply both origin validation and auth middleware
@@ -88,6 +100,9 @@ const { router: uploadRouter } = require('./routes/upload');
 const fileRoutes = require('./routes/files');
 const authRoutes = require('./routes/auth');
 const { router: shareRoutes } = require('./routes/shares');
+const notFound = (req, res) => {
+  res.status(404).json({ error: 'Not found' });
+};
 
 // Use routes with appropriate middleware
 // Apply strict rate limiting to PIN verification, but more permissive to status checks
@@ -104,31 +119,58 @@ app.use('/api/auth', pinVerifyLimiter, authRoutes);
 app.use('/api/upload/init', requirePin(config.pin), initUploadLimiter);
 app.use('/api/upload/chunk', requirePin(config.pin), chunkUploadLimiter);
 app.use('/api/upload', requirePin(config.pin), uploadRouter);
-app.use('/api/files/share', requirePin(config.pin), shareRoutes);
-app.use('/api/files/shares', requirePin(config.pin), shareRoutes);
-app.use('/api/files', requirePin(config.pin), downloadLimiter, fileRoutes);
-app.use('/api/shares', (req, res, next) => {
-  if (req.method === 'POST' && !req.path.endsWith('/auth')) {
-    return requirePin(config.pin)(req, res, next);
-  }
-  next();
-}, downloadLimiter, shareRoutes);
 
-app.get('/share/:token', (req, res) => {
-  let html = fs.readFileSync(path.join(__dirname, '../public', 'share.html'), 'utf8');
-  html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
-  html = html.replace('{{SHARE_TOKEN}}', String(req.params.token).replace(/"/g, ''));
-  html = html.replace(/{{BASE_URL}}/g, config.baseUrl.endsWith('/') ? config.baseUrl : config.baseUrl + '/');
-  html = html.replace('{{APP_CONFIG}}', JSON.stringify({
-    basePath: new URL(config.baseUrl).pathname || '/',
-  }));
-  res.send(html);
-});
+if (config.uploadOnly) {
+  // Drop-box mode: uploads stay available, management and public shares do not.
+  app.use('/api/files', notFound);
+  app.use('/api/shares', notFound);
+  app.get('/share/:token', (req, res) => {
+    res.status(404).type('text/plain').send('Not found');
+  });
+} else {
+  app.use('/api/files/share', requirePin(config.pin), shareRoutes);
+  app.use('/api/files/shares', requirePin(config.pin), shareRoutes);
+  app.use('/api/files', requirePin(config.pin), downloadLimiter, fileRoutes);
+  // Share PIN guesses use the same tight limiter as /api/auth/verify-pin.
+  app.use('/api/shares/:token/auth', (req, res, next) => {
+    if (req.method !== 'POST') return next();
+    return pinVerifyLimiter(req, res, next);
+  });
+  app.use(
+    '/api/shares',
+    (req, res, next) => {
+      if (isPublicShareRequest(req.method, req.originalUrl || req.path)) return next();
+      return requirePin(config.pin)(req, res, next);
+    },
+    downloadLimiter,
+    shareRoutes
+  );
+
+  app.get('/share/:token', (req, res) => {
+    let html = fs.readFileSync(path.join(__dirname, '../public', 'share.html'), 'utf8');
+    html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
+    html = html.replace('{{SHARE_TOKEN}}', String(req.params.token).replace(/"/g, ''));
+    html = html.replace(
+      /{{BASE_URL}}/g,
+      config.baseUrl.endsWith('/') ? config.baseUrl : config.baseUrl + '/'
+    );
+    html = html.replace(
+      '{{APP_CONFIG}}',
+      JSON.stringify({
+        basePath: new URL(config.baseUrl).pathname || '/',
+      })
+    );
+    res.send(html);
+  });
+}
 
 // Root route
 app.get('/', (req, res) => {
   // Check if the PIN is configured and the cookie exists
-  if (config.pin && (!req.cookies?.DUMBDROP_PIN || !safeCompare(req.cookies.DUMBDROP_PIN, config.pin))) {
+  if (
+    config.pin &&
+    (!req.cookies?.DUMBDROP_PIN || !safeCompare(req.cookies.DUMBDROP_PIN, config.pin))
+  ) {
     return res.redirect('/login.html');
   }
 
@@ -146,7 +188,9 @@ function indexAppConfig() {
   return {
     autoUpload: config.autoUpload,
     maxRetries: config.clientMaxRetries,
-    showFileList: config.showFileList,
+    showFileList: config.showFileList && !config.uploadOnly,
+    uploadOnly: config.uploadOnly,
+    maxStorageBytes: config.maxStorageBytes,
     pinEnabled: Boolean(config.pin),
     basePath: new URL(config.baseUrl).pathname || '/',
     maxFileSize: config.maxFileSize,
@@ -164,9 +208,12 @@ app.get('/login.html', (req, res) => {
 
   let html = fs.readFileSync(path.join(__dirname, '../public', 'login.html'), 'utf8');
   html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
-  html = html.replace('{{APP_CONFIG}}', JSON.stringify({
-    basePath: new URL(config.baseUrl).pathname || '/',
-  }));
+  html = html.replace(
+    '{{APP_CONFIG}}',
+    JSON.stringify({
+      basePath: new URL(config.baseUrl).pathname || '/',
+    })
+  );
   html = injectDemoBanner(html);
   res.send(html);
 });
@@ -175,6 +222,10 @@ app.get('/login.html', (req, res) => {
 app.use((req, res, next) => {
   if (!req.path.endsWith('.html')) {
     return next();
+  }
+
+  if (config.uploadOnly && req.path === '/share.html') {
+    return res.status(404).type('text/plain').send('Not found');
   }
 
   try {
@@ -204,7 +255,7 @@ app.use((err, req, res, next) => {
   logger.error(`Unhandled error: ${err.message}`);
   res.status(500).json({
     message: 'Internal server error',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined,
   });
 });
 
@@ -227,19 +278,21 @@ async function initialize() {
     // --- Add this section ---
     // Ensure metadata directory exists
     try {
-        if (!fs.existsSync(METADATA_DIR)) {
-            await fsPromises.mkdir(METADATA_DIR, { recursive: true });
-            logger.info(`Created metadata directory: ${METADATA_DIR}`);
-        } else {
-            logger.info(`Metadata directory exists: ${METADATA_DIR}`);
-        }
-         // Check writability (optional but good practice)
-        await fsPromises.access(METADATA_DIR, fs.constants.W_OK);
-         logger.success(`Metadata directory is writable: ${METADATA_DIR}`);
+      if (!fs.existsSync(METADATA_DIR)) {
+        await fsPromises.mkdir(METADATA_DIR, { recursive: true });
+        logger.info(`Created metadata directory: ${METADATA_DIR}`);
+      } else {
+        logger.info(`Metadata directory exists: ${METADATA_DIR}`);
+      }
+      // Check writability (optional but good practice)
+      await fsPromises.access(METADATA_DIR, fs.constants.W_OK);
+      logger.success(`Metadata directory is writable: ${METADATA_DIR}`);
     } catch (err) {
-        logger.error(`Metadata directory error (${METADATA_DIR}): ${err.message}`);
-        // Decide if this is fatal. If resumability is critical, maybe throw.
-        throw new Error(`Failed to access or create metadata directory: ${METADATA_DIR}`, { cause: err });
+      logger.error(`Metadata directory error (${METADATA_DIR}): ${err.message}`);
+      // Decide if this is fatal. If resumability is critical, maybe throw.
+      throw new Error(`Failed to access or create metadata directory: ${METADATA_DIR}`, {
+        cause: err,
+      });
     }
     // --- End added section ---
 
@@ -247,6 +300,14 @@ async function initialize() {
     logger.info(`Maximum file size set to: ${config.maxFileSize / (1024 * 1024)}MB`);
     if (config.pin) {
       logger.info('PIN protection enabled');
+    } else if (config.nodeEnv === 'production') {
+      logger.warn('PIN protection is disabled via ALLOW_INSECURE_NO_PIN');
+    }
+    if (config.uploadOnly) {
+      logger.info('Upload-only mode enabled (list, download, rename, delete, and shares are off)');
+    }
+    if (config.maxStorageBytes > 0) {
+      logger.info(`Storage quota set to ${config.maxStorageBytes / (1024 * 1024)}MB`);
     }
     logger.info(`Auto upload is ${config.autoUpload ? 'enabled' : 'disabled'}`);
     if (config.appriseUrl) {
@@ -255,17 +316,17 @@ async function initialize() {
 
     // After initializing demo middleware
     if (process.env.DEMO_MODE === 'true') {
-        logger.info('[DEMO] Running in demo mode - uploads will not be saved');
-        // Clear any existing files in upload directory
-        try {
-            const files = fs.readdirSync(config.uploadDir);
-            for (const file of files) {
-                fs.unlinkSync(path.join(config.uploadDir, file));
-            }
-            logger.info('[DEMO] Cleared upload directory');
-        } catch (err) {
-            logger.error(`[DEMO] Failed to clear upload directory: ${err.message}`);
+      logger.info('[DEMO] Running in demo mode - uploads will not be saved');
+      // Clear any existing files in upload directory
+      try {
+        const files = fs.readdirSync(config.uploadDir);
+        for (const file of files) {
+          fs.unlinkSync(path.join(config.uploadDir, file));
         }
+        logger.info('[DEMO] Cleared upload directory');
+      } catch (err) {
+        logger.error(`[DEMO] Failed to clear upload directory: ${err.message}`);
+      }
     }
 
     return app;

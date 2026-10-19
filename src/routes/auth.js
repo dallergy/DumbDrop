@@ -1,27 +1,31 @@
+/**
+ * PIN verification, lockout, and logout routes.
+ * Issues the httpOnly session cookie after a constant-time PIN check.
+ * Shares the same attempt counter as other PIN entry points.
+ */
+
 const express = require('express');
 const router = express.Router();
 const { config } = require('../config');
 const logger = require('../utils/logger');
-const { 
-  validatePin, 
-  safeCompare, 
-  isLockedOut, 
-  recordAttempt, 
+const {
+  validatePin,
+  safeCompare,
+  isLockedOut,
+  recordAttempt,
   resetAttempts,
   MAX_ATTEMPTS,
-  LOCKOUT_DURATION 
+  LOCKOUT_DURATION,
 } = require('../utils/security');
 const { getClientIp } = require('../utils/ipExtractor');
-const PORT = process.env.PORT || 3000;
-const NODE_ENV = process.env.NODE_ENV || 'production';
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const { secureCookie } = require('../middleware/security');
 /**
  * Verify PIN
  */
 router.post('/verify-pin', (req, res) => {
   const { pin } = req.body || {};
   const ip = getClientIp(req);
-  
+
   try {
     // If no PIN is set in config, always return success
     if (!config.pin) {
@@ -39,9 +43,9 @@ router.post('/verify-pin', (req, res) => {
     const cleanedPin = validatePin(pin);
     if (!cleanedPin) {
       logger.warn(`Invalid PIN format from IP: ${ip}`);
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Invalid PIN format. PIN must be 4-10 digits.' 
+        error: 'Invalid PIN format. PIN must be 4-10 digits.',
       });
     }
 
@@ -51,11 +55,11 @@ router.post('/verify-pin', (req, res) => {
       const timeLeft = Math.ceil(
         (LOCKOUT_DURATION - (Date.now() - attempts.lastAttempt)) / 1000 / 60
       );
-      
+
       logger.warn(`Login attempt from locked out IP: ${ip}`);
-      return res.status(429).json({ 
+      return res.status(429).json({
         success: false,
-        error: `Too many PIN verification attempts. Please try again in ${timeLeft} minutes.`
+        error: `Too many PIN verification attempts. Please try again in ${timeLeft} minutes.`,
       });
     }
 
@@ -63,14 +67,14 @@ router.post('/verify-pin', (req, res) => {
     if (safeCompare(cleanedPin, config.pin)) {
       // Reset attempts on successful login
       resetAttempts(ip);
-      
+
       // Set secure cookie with cleaned PIN
       res.cookie('DUMBDROP_PIN', cleanedPin, {
         httpOnly: true,
-        secure: req.secure || (BASE_URL.startsWith('https') && NODE_ENV === 'production'),
+        secure: secureCookie(req),
         sameSite: 'strict',
         path: '/',
-        maxAge: 24 * 60 * 60 * 1000
+        maxAge: 24 * 60 * 60 * 1000,
       });
 
       logger.info(`Successful PIN verification from IP: ${ip}`);
@@ -79,13 +83,14 @@ router.post('/verify-pin', (req, res) => {
       // Record failed attempt
       const attempts = recordAttempt(ip);
       const attemptsLeft = MAX_ATTEMPTS - attempts.count;
-      
+
       logger.warn(`Failed PIN verification from IP: ${ip} (${attemptsLeft} attempts remaining)`);
-      res.status(401).json({ 
-        success: false, 
-        error: attemptsLeft > 0 ? 
-          `Invalid PIN. ${attemptsLeft} attempts remaining.` : 
-          'Too many PIN verification attempts. Account locked for 15 minutes.'
+      res.status(401).json({
+        success: false,
+        error:
+          attemptsLeft > 0
+            ? `Invalid PIN. ${attemptsLeft} attempts remaining.`
+            : 'Too many PIN verification attempts. Account locked for 15 minutes.',
       });
     }
   } catch (err) {
@@ -99,8 +104,8 @@ router.post('/verify-pin', (req, res) => {
  */
 router.get('/pin-required', (req, res) => {
   try {
-    res.json({ 
-      required: !!config.pin
+    res.json({
+      required: !!config.pin,
     });
   } catch (err) {
     logger.error(`PIN check error: ${err.message}`);
@@ -122,4 +127,4 @@ router.post('/logout', (req, res) => {
   }
 });
 
-module.exports = router; 
+module.exports = router;

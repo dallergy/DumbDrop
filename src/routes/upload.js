@@ -12,10 +12,22 @@ const fs = require('fs').promises; // Use promise-based fs
 const fsSync = require('fs'); // For sync checks like existsSync
 const { config } = require('../config');
 const logger = require('../utils/logger');
-const { getUniqueFolderPath, sanitizePathPreserveDirsSafe, isValidBatchId, isPathWithinUploadDir } = require('../utils/fileUtils');
+const {
+  getUniqueFolderPath,
+  sanitizePathPreserveDirsSafe,
+  isValidBatchId,
+  isPathWithinUploadDir,
+} = require('../utils/fileUtils');
 const { sendNotification } = require('../services/notifications');
 const { isDemoMode } = require('../utils/demoMode');
-const { mergeRange, coveredBytes, firstGap, isComplete, missingRanges } = require('../utils/byteRanges');
+const {
+  mergeRange,
+  coveredBytes,
+  firstGap,
+  isComplete,
+  missingRanges,
+} = require('../utils/byteRanges');
+const { reserveStorage, commitStored, releaseReservation } = require('../utils/storageQuota');
 
 // --- Persistence Setup ---
 const METADATA_DIR = path.join(config.uploadDir, '.metadata');
@@ -85,7 +97,11 @@ async function writeUploadMetadata(uploadId, metadata) {
   } catch (err) {
     logger.error(`Error writing metadata for ${uploadId}: ${err.message}`);
     // Attempt to clean up temp file if rename failed
-    try { await fs.unlink(tempMetaPath); } catch {/* ignore */}
+    try {
+      await fs.unlink(tempMetaPath);
+    } catch {
+      /* ignore */
+    }
     throw err;
   }
 }
@@ -144,7 +160,9 @@ function resolveBatchFolder(originalFolderName, batchId) {
       if (err.code !== 'EEXIST') throw err;
       const uniqueFolderPath = await getUniqueFolderPath(baseFolderPath);
       newFolderName = path.basename(uniqueFolderPath);
-      logger.info(`Folder "${originalFolderName}" exists or conflict, using unique "${newFolderName}" for batch ${batchId}`);
+      logger.info(
+        `Folder "${originalFolderName}" exists or conflict, using unique "${newFolderName}" for batch ${batchId}`
+      );
     }
     folderMappings.set(key, newFolderName);
     return newFolderName;
@@ -254,7 +272,8 @@ async function deleteUploadMetadata(uploadId) {
     await fs.unlink(metaFilePath);
     logger.debug(`Deleted metadata file for upload: ${uploadId}.meta`);
   } catch (err) {
-    if (err.code !== 'ENOENT') { // Ignore if already deleted
+    if (err.code !== 'ENOENT') {
+      // Ignore if already deleted
       logger.error(`Error deleting metadata file ${uploadId}.meta: ${err.message}`);
     }
   }
@@ -271,15 +290,23 @@ async function finalizeUpload(uploadId, metadata) {
   rememberCompleted(uploadId, metadata.fileSize);
   try {
     await fs.rename(metadata.partialFilePath, metadata.filePath);
-    logger.success(`Upload completed and finalized: ${metadata.originalFilename} as ${metadata.filePath} (${metadata.fileSize} bytes)`);
+    logger.success(
+      `Upload completed and finalized: ${metadata.originalFilename} as ${metadata.filePath} (${metadata.fileSize} bytes)`
+    );
     await deleteUploadMetadata(uploadId);
+    await commitStored(uploadId, metadata.fileSize);
     sendNotification(metadata.originalFilename, metadata.fileSize, config);
   } catch (renameErr) {
     if (renameErr.code === 'ENOENT') {
-      logger.warn(`Partial file ${metadata.partialFilePath} not found during finalization for ${uploadId}.`);
+      logger.warn(
+        `Partial file ${metadata.partialFilePath} not found during finalization for ${uploadId}.`
+      );
       await deleteUploadMetadata(uploadId).catch(() => {});
+      await releaseReservation(uploadId);
     } else {
-      logger.error(`CRITICAL: Failed to rename partial file ${metadata.partialFilePath} to ${metadata.filePath}: ${renameErr.message}`);
+      logger.error(
+        `CRITICAL: Failed to rename partial file ${metadata.partialFilePath} to ${metadata.filePath}: ${renameErr.message}`
+      );
     }
   }
 }
@@ -288,25 +315,28 @@ async function finalizeUpload(uploadId, metadata) {
 let batchCleanupInterval;
 function startBatchCleanup() {
   if (batchCleanupInterval) clearInterval(batchCleanupInterval);
-  batchCleanupInterval = setInterval(() => {
-    const now = Date.now();
-    logger.info(`Running batch cleanup, checking ${batchActivity.size} active batch sessions`);
-    let cleanedCount = 0;
-    for (const [batchId, lastActivity] of batchActivity.entries()) {
-      if (now - lastActivity >= BATCH_TIMEOUT) {
-        logger.info(`Cleaning up inactive batch session: ${batchId}`);
-        batchActivity.delete(batchId);
-        // Clean up associated folder mappings for this batch
-        for (const key of folderMappings.keys()) {
-          if (key.endsWith(`-${batchId}`)) {
-            folderMappings.delete(key);
+  batchCleanupInterval = setInterval(
+    () => {
+      const now = Date.now();
+      logger.info(`Running batch cleanup, checking ${batchActivity.size} active batch sessions`);
+      let cleanedCount = 0;
+      for (const [batchId, lastActivity] of batchActivity.entries()) {
+        if (now - lastActivity >= BATCH_TIMEOUT) {
+          logger.info(`Cleaning up inactive batch session: ${batchId}`);
+          batchActivity.delete(batchId);
+          // Clean up associated folder mappings for this batch
+          for (const key of folderMappings.keys()) {
+            if (key.endsWith(`-${batchId}`)) {
+              folderMappings.delete(key);
+            }
           }
+          cleanedCount++;
         }
-        cleanedCount++;
       }
-    }
-    if (cleanedCount > 0) logger.info(`Cleaned up ${cleanedCount} inactive batch sessions.`);
-  }, 5 * 60 * 1000); // Check every 5 minutes
+      if (cleanedCount > 0) logger.info(`Cleaned up ${cleanedCount} inactive batch sessions.`);
+    },
+    5 * 60 * 1000
+  ); // Check every 5 minutes
   batchCleanupInterval.unref(); // Allow process to exit if this is the only timer
   return batchCleanupInterval;
 }
@@ -329,13 +359,15 @@ router.post('/init', async (req, res) => {
     const { filename, fileSize } = req.body || {};
     const sanitizedDemoFilename = sanitizePathPreserveDirsSafe(filename);
     const uploadId = 'demo-' + crypto.randomBytes(16).toString('hex');
-    
+
     // Log if the filename was changed during sanitization
     if (filename !== sanitizedDemoFilename) {
       logger.info(`[DEMO] Filename sanitized: "${filename}" -> "${sanitizedDemoFilename}"`);
     }
-    
-    logger.info(`[DEMO] Initialized upload for ${sanitizedDemoFilename} (${fileSize} bytes) with ID ${uploadId}`);
+
+    logger.info(
+      `[DEMO] Initialized upload for ${sanitizedDemoFilename} (${fileSize} bytes) with ID ${uploadId}`
+    );
     // Simulate zero-byte completion for demo
     if (Number(fileSize) === 0) {
       logger.success(`[DEMO] Completed zero-byte file upload: ${sanitizedDemoFilename}`);
@@ -349,24 +381,33 @@ router.post('/init', async (req, res) => {
 
   // --- Basic validations ---
   if (!filename) return res.status(400).json({ error: 'Missing filename' });
-  if (fileSize === undefined || fileSize === null) return res.status(400).json({ error: 'Missing fileSize' });
+  if (fileSize === undefined || fileSize === null)
+    return res.status(400).json({ error: 'Missing fileSize' });
   const size = Number(fileSize);
   if (isNaN(size) || size < 0) return res.status(400).json({ error: 'Invalid file size' });
   const maxSizeInBytes = config.maxFileSize;
-  if (size > maxSizeInBytes) return res.status(413).json({ error: 'File too large', limit: maxSizeInBytes });
+  if (size > maxSizeInBytes)
+    return res.status(413).json({ error: 'File too large', limit: maxSizeInBytes });
 
-  const batchId = clientBatchId || `${Date.now()}-${crypto.randomBytes(4).toString('hex').substring(0, 9)}`;
-  if (clientBatchId && !isValidBatchId(batchId)) return res.status(400).json({ error: 'Invalid batch ID format' });
+  const batchId =
+    clientBatchId || `${Date.now()}-${crypto.randomBytes(4).toString('hex').substring(0, 9)}`;
+  if (clientBatchId && !isValidBatchId(batchId))
+    return res.status(400).json({ error: 'Invalid batch ID format' });
   batchActivity.set(batchId, Date.now()); // Track batch session activity
+
+  // Declared outside try so a failure after reserveStorage still releases it.
+  let uploadId;
+  let holdingReservation = false;
 
   try {
     // --- Path handling and Sanitization ---
     const sanitizedFilename = sanitizePathPreserveDirsSafe(filename);
-    const safeFilename = path.normalize(sanitizedFilename)
+    const safeFilename = path
+      .normalize(sanitizedFilename)
       .replace(/^(\.\.(\/|\\|$))+/, '')
       .replace(/\\/g, '/')
       .replace(/^\/+/, '');
-    
+
     // Log if the filename was changed during sanitization
     if (filename !== safeFilename) {
       logger.info(`Upload filename sanitized: "${filename}" -> "${safeFilename}"`);
@@ -384,27 +425,48 @@ router.post('/init', async (req, res) => {
     }
 
     // --- Determine Paths & Handle Folders ---
-    const uploadId = crypto.randomBytes(16).toString('hex');
+    uploadId = crypto.randomBytes(16).toString('hex');
     let finalFilePath = path.join(config.uploadDir, safeFilename);
-    
+
     // Validate that the constructed path is within the upload directory
     if (!isPathWithinUploadDir(finalFilePath, config.uploadDir, false)) {
       logger.error(`Path traversal detected in upload init: ${safeFilename} -> ${finalFilePath}`);
       return res.status(403).json({ error: 'Invalid file path' });
     }
-    
+
+    // Reserve the declared size before creating files so concurrent inits
+    // cannot each pass a quota check against the same free space.
+    const quota = await reserveStorage(uploadId, size);
+    if (!quota.ok) {
+      logger.warn(
+        `Storage quota exceeded for ${safeFilename}: used ${quota.usedBytes}, ` +
+          `reserved ${quota.reservedBytes}, incoming ${size}, limit ${quota.limit}`
+      );
+      return res.status(507).json({
+        error: 'Storage quota exceeded',
+        limit: quota.limit,
+        used: quota.usedBytes,
+        reserved: quota.reservedBytes,
+      });
+    }
+    holdingReservation = true;
+
     const pathParts = safeFilename.split('/').filter(Boolean);
 
     if (pathParts.length > 1) {
       pathParts[0] = await resolveBatchFolder(pathParts[0], batchId);
       finalFilePath = path.join(config.uploadDir, ...pathParts);
-      
+
       // Validate the updated path
       if (!isPathWithinUploadDir(finalFilePath, config.uploadDir, false)) {
-        logger.error(`Path traversal detected after folder mapping: ${pathParts.join('/')} -> ${finalFilePath}`);
+        logger.error(
+          `Path traversal detected after folder mapping: ${pathParts.join('/')} -> ${finalFilePath}`
+        );
+        await releaseReservation(uploadId);
+        holdingReservation = false;
         return res.status(403).json({ error: 'Invalid file path' });
       }
-      
+
       await fs.mkdir(path.dirname(finalFilePath), { recursive: true });
     } else {
       await fs.mkdir(config.uploadDir, { recursive: true }); // Ensure base upload dir exists
@@ -424,22 +486,26 @@ router.post('/init', async (req, res) => {
     if (checkPath !== finalFilePath) {
       logger.info(`Using unique final path: ${checkPath}`);
       finalFilePath = checkPath;
-      
+
       // Validate the unique path
       if (!isPathWithinUploadDir(finalFilePath, config.uploadDir, false)) {
         logger.error(`Path traversal detected in unique path: ${finalFilePath}`);
+        await releaseReservation(uploadId);
+        holdingReservation = false;
         return res.status(403).json({ error: 'Invalid file path' });
       }
-      
+
       // If path changed, ensure directory exists (might be needed if baseName contained '/')
       await fs.mkdir(path.dirname(finalFilePath), { recursive: true });
     }
 
     const partialFilePath = finalFilePath + '.partial';
-    
+
     // Validate the partial file path as well
     if (!isPathWithinUploadDir(partialFilePath, config.uploadDir, false)) {
       logger.error(`Path traversal detected in partial path: ${partialFilePath}`);
+      await releaseReservation(uploadId);
+      holdingReservation = false;
       return res.status(403).json({ error: 'Invalid file path' });
     }
 
@@ -454,12 +520,14 @@ router.post('/init', async (req, res) => {
       ranges: [],
       batchId,
       createdAt: Date.now(),
-      lastActivity: Date.now()
+      lastActivity: Date.now(),
     };
 
     await writeUploadMetadata(uploadId, metadata);
     metadataCache.set(uploadId, ensureRanges(metadata));
-    logger.info(`Initialized persistent upload: ${uploadId} for ${safeFilename} -> ${finalFilePath}`);
+    logger.info(
+      `Initialized persistent upload: ${uploadId} for ${safeFilename} -> ${finalFilePath}`
+    );
 
     if (size > 0) {
       await fs.writeFile(partialFilePath, '');
@@ -469,9 +537,13 @@ router.post('/init', async (req, res) => {
     if (size === 0) {
       try {
         await fs.writeFile(finalFilePath, ''); // Create the empty file
-        logger.success(`Completed zero-byte file upload: ${metadata.originalFilename} as ${finalFilePath}`);
+        logger.success(
+          `Completed zero-byte file upload: ${metadata.originalFilename} as ${finalFilePath}`
+        );
         await deleteUploadMetadata(uploadId); // Clean up metadata since it's done
         metadataCache.delete(uploadId);
+        await commitStored(uploadId, 0);
+        holdingReservation = false;
         rememberCompleted(uploadId, 0);
         sendNotification(metadata.originalFilename, 0, config);
       } catch (writeErr) {
@@ -482,10 +554,16 @@ router.post('/init', async (req, res) => {
     }
 
     res.json({ uploadId, maxChunkBytes: MAX_CHUNK_BYTES });
-
   } catch (err) {
+    if (holdingReservation && uploadId) {
+      // Drop the meta file too, or the next quota check still counts it from disk.
+      await releaseReservation(uploadId).catch(() => {});
+      await deleteUploadMetadata(uploadId).catch(() => {});
+    }
     logger.error(`Upload initialization failed: ${err.message} ${err.stack}`);
-    return res.status(500).json({ error: 'Failed to initialize upload', details: publicErrorDetails(err) });
+    return res
+      .status(500)
+      .json({ error: 'Failed to initialize upload', details: publicErrorDetails(err) });
   }
 });
 
@@ -493,7 +571,14 @@ router.post('/init', async (req, res) => {
 router.get('/status/:uploadId', async (req, res) => {
   const { uploadId } = req.params;
   if (isDemoMode()) {
-    return res.json({ uploadId, complete: true, progress: 100, bytesReceived: 0, ranges: [], missing: [] });
+    return res.json({
+      uploadId,
+      complete: true,
+      progress: 100,
+      bytesReceived: 0,
+      ranges: [],
+      missing: [],
+    });
   }
   try {
     const metadata = await getCachedMetadata(uploadId);
@@ -538,13 +623,18 @@ router.post('/chunk/:uploadId', async (req, res) => {
     metadata = await getCachedMetadata(uploadId);
   } catch (err) {
     logger.error(`Chunk metadata lookup failed for ${uploadId}: ${err.message}`);
-    return reject(req, res, 500, { error: 'Failed to process chunk', details: publicErrorDetails(err) });
+    return reject(req, res, 500, {
+      error: 'Failed to process chunk',
+      details: publicErrorDetails(err),
+    });
   }
 
   if (!metadata) {
     const done = recentlyCompleted.get(uploadId);
     if (done) return reject(req, res, 200, completedPayload(uploadId, done));
-    logger.warn(`Upload metadata not found for chunk request: ${uploadId}. Client Batch ID: ${clientBatchId || 'none'}.`);
+    logger.warn(
+      `Upload metadata not found for chunk request: ${uploadId}. Client Batch ID: ${clientBatchId || 'none'}.`
+    );
     return reject(req, res, 404, { error: 'Upload session not found or already completed' });
   }
 
@@ -559,14 +649,24 @@ router.post('/chunk/:uploadId', async (req, res) => {
   const offset = parseChunkOffset(req, firstGap(metadata.ranges, metadata.fileSize));
   if (offset === null) return reject(req, res, 400, { error: 'Invalid chunk offset' });
   if (offset >= metadata.fileSize) {
-    return reject(req, res, 400, { error: 'Chunk offset beyond end of file', fileSize: metadata.fileSize });
+    return reject(req, res, 400, {
+      error: 'Chunk offset beyond end of file',
+      fileSize: metadata.fileSize,
+    });
   }
   if (Number.isFinite(declaredLength) && offset + declaredLength > metadata.fileSize) {
-    return reject(req, res, 400, { error: 'Chunk exceeds file size', fileSize: metadata.fileSize, offset });
+    return reject(req, res, 400, {
+      error: 'Chunk exceeds file size',
+      fileSize: metadata.fileSize,
+      offset,
+    });
   }
   if (metadata.inflight >= MAX_INFLIGHT_PER_UPLOAD) {
     res.set('Retry-After', '1');
-    return reject(req, res, 429, { error: 'Too many parallel chunks for this upload', limit: MAX_INFLIGHT_PER_UPLOAD });
+    return reject(req, res, 429, {
+      error: 'Too many parallel chunks for this upload',
+      limit: MAX_INFLIGHT_PER_UPLOAD,
+    });
   }
 
   metadata.inflight += 1;
@@ -585,7 +685,9 @@ router.post('/chunk/:uploadId', async (req, res) => {
       pendingBytes = 0;
       const result = await fileHandle.write(buf, 0, buf.length, offset + written);
       if (result.bytesWritten !== buf.length) {
-        throw new Error(`Short write for ${uploadId}: expected ${buf.length}, wrote ${result.bytesWritten}`);
+        throw new Error(
+          `Short write for ${uploadId}: expected ${buf.length}, wrote ${result.bytesWritten}`
+        );
       }
       written += result.bytesWritten;
     };
@@ -606,7 +708,9 @@ router.post('/chunk/:uploadId', async (req, res) => {
         responded = true;
         pending = [];
         pendingBytes = 0;
-        res.status(400).json({ error: 'Chunk exceeds file size', fileSize: metadata.fileSize, offset });
+        res
+          .status(400)
+          .json({ error: 'Chunk exceeds file size', fileSize: metadata.fileSize, offset });
         continue;
       }
       pending.push(piece);
@@ -623,7 +727,9 @@ router.post('/chunk/:uploadId', async (req, res) => {
       responded = true;
       res.status(500).json({ error: 'Failed to process chunk', details: publicErrorDetails(err) });
     } else if (!req.complete) {
-      logger.debug(`Chunk connection dropped for ${uploadId} after ${written} bytes at offset ${offset}`);
+      logger.debug(
+        `Chunk connection dropped for ${uploadId} after ${written} bytes at offset ${offset}`
+      );
       responded = true;
     }
   }
@@ -631,7 +737,9 @@ router.post('/chunk/:uploadId', async (req, res) => {
   if (written > 0) {
     metadata.ranges = mergeRange(metadata.ranges, offset, offset + written);
     metadata.bytesReceived = coveredBytes(metadata.ranges);
-    logger.debug(`Chunk written for ${uploadId}: [${offset}, ${offset + written}) -> ${metadata.bytesReceived}/${metadata.fileSize}`);
+    logger.debug(
+      `Chunk written for ${uploadId}: [${offset}, ${offset + written}) -> ${metadata.bytesReceived}/${metadata.fileSize}`
+    );
   }
   metadata.inflight -= 1;
 
@@ -673,14 +781,19 @@ router.post('/cancel/:uploadId', async (req, res) => {
         await fs.unlink(metadata.partialFilePath);
         logger.info(`Deleted partial file on cancellation: ${metadata.partialFilePath}`);
       } catch (unlinkErr) {
-        if (unlinkErr.code !== 'ENOENT') { // Ignore if already gone
-          logger.error(`Failed to delete partial file ${metadata.partialFilePath} on cancel: ${unlinkErr.message}`);
+        if (unlinkErr.code !== 'ENOENT') {
+          // Ignore if already gone
+          logger.error(
+            `Failed to delete partial file ${metadata.partialFilePath} on cancel: ${unlinkErr.message}`
+          );
         }
       }
       // Then delete metadata file
       await deleteUploadMetadata(uploadId);
+      await releaseReservation(uploadId);
       logger.info(`Upload cancelled and cleaned up: ${uploadId} (${metadata.originalFilename})`);
     } else {
+      await releaseReservation(uploadId);
       logger.warn(`Cancel request for non-existent or already completed upload: ${uploadId}`);
     }
 
@@ -700,5 +813,5 @@ module.exports = {
   // Export for testing if required
   readUploadMetadata,
   writeUploadMetadata,
-  deleteUploadMetadata
+  deleteUploadMetadata,
 };

@@ -5,12 +5,14 @@
 
 // Disable batch cleanup for tests
 process.env.DISABLE_BATCH_CLEANUP = 'true';
+process.env.ALLOW_INSECURE_NO_PIN = 'true';
 
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
 const fs = require('fs').promises;
 const path = require('path');
+const os = require('os');
 
 // Import the app
 const { app, initialize, config } = require('../src/app');
@@ -325,6 +327,69 @@ describe('File Management API Tests', () => {
       });
 
       assert.strictEqual(response.status, 400);
+    });
+  });
+
+  describe('Symlink escapes', () => {
+    it('should reject download, delete, and rename of a symlink pointing outside', async () => {
+      const outside = path.join(os.tmpdir(), `dumbdrop-outside-${Date.now()}.txt`);
+      const linkName = `escape-link-${Date.now()}.txt`;
+      const linkPath = path.join(config.uploadDir, linkName);
+      await fs.writeFile(outside, 'secret');
+      await fs.symlink(outside, linkPath);
+
+      try {
+        const paths = [
+          { method: 'GET', path: `/api/files/download/${linkName}` },
+          { method: 'GET', path: `/api/files/info/${linkName}` },
+          { method: 'DELETE', path: `/api/files/${linkName}` },
+        ];
+        for (const spec of paths) {
+          const response = await makeRequest({
+            host: 'localhost',
+            port: server.address().port,
+            path: spec.path,
+            method: spec.method,
+          });
+          assert.strictEqual(response.status, 403, spec.path);
+        }
+
+        const rename = await makeRequest({
+          host: 'localhost',
+          port: server.address().port,
+          path: `/api/files/rename/${linkName}`,
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+        }, { newName: 'renamed-escape.txt' });
+        assert.strictEqual(rename.status, 403);
+        await fs.access(outside);
+      } finally {
+        await fs.unlink(linkPath).catch(() => {});
+        await fs.unlink(outside).catch(() => {});
+      }
+    });
+
+    it('should reject a file reached through a symlinked directory', async () => {
+      const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dumbdrop-out-'));
+      const linkName = `escape-dir-${Date.now()}`;
+      const linkPath = path.join(config.uploadDir, linkName);
+      await fs.writeFile(path.join(outsideDir, 'secret.txt'), 'secret');
+      await fs.symlink(outsideDir, linkPath);
+
+      try {
+        const response = await makeRequest({
+          host: 'localhost',
+          port: server.address().port,
+          path: `/api/files/download/${linkName}/secret.txt`,
+          method: 'GET',
+        });
+        assert.strictEqual(response.status, 403);
+        const stillThere = await fs.readFile(path.join(outsideDir, 'secret.txt'), 'utf8');
+        assert.strictEqual(stillThere, 'secret');
+      } finally {
+        await fs.unlink(linkPath).catch(() => {});
+        await fs.rm(outsideDir, { recursive: true, force: true });
+      }
     });
   });
 });

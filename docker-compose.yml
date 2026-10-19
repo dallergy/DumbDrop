@@ -1,22 +1,51 @@
+# DumbDrop — local compose file
+#
+# Copy this file and set a PIN before starting:
+#   DUMBDROP_PIN=123456 docker compose up -d
+#
+# The app listens on loopback only. Put a reverse proxy in front of it
+# for anything other than local use. A proxy on the same Docker network
+# does not need a published port; delete the ports block and attach both
+# services to one network.
+#
+# Direct publish (not recommended): "3000:3000"
+
 services:
     dumbdrop:
-        image: YOUR_DOCKERHUB_USER/dumbdrop:latest
+        image: YOUR_DOCKERHUB_USER/dumbdrop:1.5.0
         container_name: dumbdrop
         restart: unless-stopped
         ports:
-            - 3000:3000
+            - 127.0.0.1:3000:3000
         volumes:
             - ./uploads:/app/uploads
+        read_only: true
+        cap_drop:
+            - ALL
+        security_opt:
+            - no-new-privileges:true
+        mem_limit: 512m
+        pids_limit: 256
+        tmpfs:
+            - /tmp:mode=1777,size=64m
+            - /home/node:mode=0755,size=16m
         environment:
             UPLOAD_DIR: /app/uploads
             NODE_ENV: production
             PORT: 3000
             DUMBDROP_TITLE: DumbDrop
             MAX_FILE_SIZE: 1024
-            # Leave empty to disable PIN. Never ship a default PIN.
-            DUMBDROP_PIN: ""
+            # Required in production. 4-10 digits. Compose fails fast when this is unset.
+            # Set ALLOW_INSECURE_NO_PIN=true only for a private demo with no authentication.
+            DUMBDROP_PIN: ${DUMBDROP_PIN:?Set DUMBDROP_PIN to a 4-10 digit PIN}
             AUTO_UPLOAD: "true"
-            SHOW_FILE_LIST: "true"
+            # File listing, download, rename, delete, and shares. Leave false for a drop box.
+            SHOW_FILE_LIST: "false"
+            # UPLOAD_ONLY=true returns 404 for list/download/rename/delete/shares even if
+            # SHOW_FILE_LIST is true. Uploads, login, and /health keep working.
+            # UPLOAD_ONLY: "false"
+            # Total upload-directory cap in MB. 0 or unset means unlimited.
+            # MAX_STORAGE_MB: 10240
             BASE_URL: http://localhost:3000
 
             # Upload tuning: parallel streams per browser (1-6) and chunk size (0 = adaptive)
@@ -26,6 +55,8 @@ services:
             # Comma-separated list of allowed origins for CORS
             # ALLOWED_ORIGINS: http://internalip:port,https://subdomain.example.com
 
-            # Reverse Proxy / Security Settings (IMPORTANT: Read documentation before enabling)
+            # Reverse proxy. Leave TRUST_PROXY false when the port above is the only entry.
+            # Behind a proxy, every client otherwise shares the proxy IP, so one bad PIN
+            # locks everyone out and rate limits collapse into a single bucket.
             # TRUST_PROXY: "true"
-            # TRUSTED_PROXY_IPS: 172.17.0.1,10.0.0.1
+            # TRUSTED_PROXY_IPS: 172.17.0.1

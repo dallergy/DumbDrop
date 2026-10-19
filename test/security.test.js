@@ -5,6 +5,7 @@
 
 // Disable batch cleanup for tests
 process.env.DISABLE_BATCH_CLEANUP = 'true';
+process.env.ALLOW_INSECURE_NO_PIN = 'true';
 
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert');

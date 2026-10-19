@@ -4,6 +4,7 @@
  */
 
 process.env.DISABLE_BATCH_CLEANUP = 'true';
+process.env.ALLOW_INSECURE_NO_PIN = 'true';
 process.env.BASE_URL = 'http://localhost:3000/';
 
 const { describe, it, before, after } = require('node:test');
