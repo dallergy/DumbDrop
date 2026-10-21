@@ -77,6 +77,10 @@ describe('isPublicShareRequest', () => {
     assert.strictEqual(isPublicShareRequest('POST', '/api/shares'), false);
     assert.strictEqual(isPublicShareRequest('PATCH', '/api/shares/abc'), false);
     assert.strictEqual(isPublicShareRequest('DELETE', '/api/shares/abc'), false);
+    // Express routing ignores case, so these must not look public either.
+    assert.strictEqual(isPublicShareRequest('GET', '/api/shares/MANAGE'), false);
+    assert.strictEqual(isPublicShareRequest('GET', '/api/shares/Manage/'), false);
+    assert.strictEqual(isPublicShareRequest('GET', '/API/SHARES/manage'), false);
   });
 });
 
@@ -92,6 +96,12 @@ describe('Share management requires the owner PIN', () => {
 
     const manage = await request('GET', '/api/shares/manage');
     assert.strictEqual(manage.status, 401);
+
+    for (const variant of ['/api/shares/MANAGE', '/api/shares/Manage', '/API/SHARES/MANAGE']) {
+      const res = await request('GET', variant);
+      assert.strictEqual(res.status, 401, `${variant} must require the PIN`);
+      assert.strictEqual(res.data.shares, undefined);
+    }
 
     const ownerManage = await request('GET', '/api/files/shares/manage');
     assert.strictEqual(ownerManage.status, 401);

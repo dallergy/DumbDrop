@@ -53,6 +53,5 @@ coverage/
 
 # Development configs
 .editorconfig
-nodemon.json
 eslint.config.js
 .prettierrc

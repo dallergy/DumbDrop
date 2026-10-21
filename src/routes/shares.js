@@ -12,11 +12,14 @@ const QRCode = require('qrcode');
 const { config } = require('../config');
 const { safeCompare, isLockedOut, recordAttempt, resetAttempts } = require('../utils/security');
 const { getClientIp } = require('../utils/ipExtractor');
-const { secureCookie } = require('../middleware/security');
+const { secureCookie, requirePin } = require('../middleware/security');
 const { isPathWithinUploadDir, formatFileSize } = require('../utils/fileUtils');
 const { getOrCreateShareZip, deleteShareArchive } = require('../utils/shareArchives');
 
 const router = express.Router();
+// Management routes check the owner PIN here as well as at the mount, so a
+// gap in isPublicShareRequest cannot expose them.
+const requireOwnerPin = (req, res, next) => requirePin(config.pin)(req, res, next);
 const storePath = path.join(config.uploadDir, '.metadata', 'shares.json');
 
 async function readShares() {
@@ -60,12 +63,16 @@ function toShareResponse(share, extra = {}) {
  * Public share routes do not require the owner PIN.
  * Management routes (list, create, update, delete) do.
  * Accepts either the full URL path or the path Express exposes inside the mount.
+ * Express matches routes case-insensitively, so this check must too:
+ * otherwise /api/shares/MANAGE looks public but still reaches GET /manage.
  * @param {string} method
  * @param {string} requestPath
  * @returns {boolean}
  */
 function isPublicShareRequest(method, requestPath) {
-  const pathname = String(requestPath || '').split('?')[0];
+  const pathname = String(requestPath || '')
+    .split('?')[0]
+    .toLowerCase();
   const prefix = '/api/shares';
   let subpath = pathname;
   if (pathname === prefix) subpath = '/';
@@ -208,7 +215,7 @@ async function cleanupExpiredShares() {
   }
 }
 
-router.post('/', async (req, res, next) => {
+router.post('/', requireOwnerPin, async (req, res, next) => {
   try {
     const relativePath =
       typeof req.body?.path === 'string' ? req.body?.path.replace(/\\/g, '/') : '';
@@ -250,7 +257,7 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-router.get('/manage', async (req, res, next) => {
+router.get('/manage', requireOwnerPin, async (req, res, next) => {
   try {
     const shares = await readShares();
     const list = Object.values(shares)
@@ -269,7 +276,7 @@ router.get('/manage', async (req, res, next) => {
   }
 });
 
-router.patch('/:token', async (req, res, next) => {
+router.patch('/:token', requireOwnerPin, async (req, res, next) => {
   try {
     const shares = await readShares();
     const share = shares[req.params.token];
@@ -310,7 +317,7 @@ router.patch('/:token', async (req, res, next) => {
   }
 });
 
-router.delete('/:token', async (req, res, next) => {
+router.delete('/:token', requireOwnerPin, async (req, res, next) => {
   try {
     const removed = await removeShare(req.params.token);
     if (!removed) {
