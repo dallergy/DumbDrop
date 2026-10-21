@@ -38,6 +38,8 @@ services:
       DUMBDROP_TITLE: DumbDrop Plus
       # Required. An empty PIN disables list, download, rename, and delete.
       DUMBDROP_PIN: ${DUMBDROP_PIN:?Set DUMBDROP_PIN to a 4-10 digit PIN}
+      # Optional: only this PIN can list, download, rename, delete and share.
+      # DUMBDROP_ADMIN_PIN: ${DUMBDROP_ADMIN_PIN}
       MAX_FILE_SIZE: 1024
       AUTO_UPLOAD: "true"
       SHOW_FILE_LIST: "false"

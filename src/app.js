@@ -15,8 +15,8 @@ const fsPromises = require('fs').promises;
 const { config, validateConfig } = require('./config');
 const logger = require('./utils/logger');
 const { ensureDirectoryExists } = require('./utils/fileUtils');
-const { getHelmetConfig, requirePin } = require('./middleware/security');
-const { safeCompare } = require('./utils/security');
+const { getHelmetConfig, requireAccess, canManage } = require('./middleware/security');
+const { sessionRole } = require('./utils/sessions');
 const {
   initUploadLimiter,
   chunkUploadLimiter,
@@ -26,10 +26,10 @@ const {
 } = require('./middleware/rateLimiter');
 const { injectDemoBanner, demoMiddleware } = require('./utils/demoMode');
 const { originValidationMiddleware, getCorsOptions } = require('./middleware/cors');
-const { isPublicShareRequest } = require('./routes/shares');
 
 // Create Express app
 const app = express();
+const PUBLIC_DIR = path.resolve(__dirname, '../public');
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
@@ -58,38 +58,35 @@ app.use(cookieParser());
 app.use(express.json({ limit: '1mb' }));
 app.use(helmet(getHelmetConfig()));
 
-// --- AUTHENTICATION MIDDLEWARE FOR ALL PROTECTED ROUTES ---
-app.use((req, res, next) => {
-  // List of paths that should be publicly accessible
-  const publicPaths = [
-    '/login',
-    '/login.html',
-    '/api/auth/logout',
-    '/api/auth/verify-pin',
-    '/api/auth/pin-required',
-    '/health',
-    '/api/health',
-    '/config.js',
-    '/assets/',
-    '/js/',
-    '/styles.css',
-    '/manifest.json',
-    '/asset-manifest.json',
-    '/service-worker.js',
-    '/share/',
-    '/share.html',
-  ];
+// --- ORIGIN CHECK AND DEMO MODE FOR NON-PUBLIC ROUTES ---
+// PIN checks happen per route below (requireAccess); this layer only checks
+// the request Origin and applies demo mode.
+const PUBLIC_PATH_PREFIXES = [
+  '/login',
+  '/login.html',
+  '/api/auth/logout',
+  '/api/auth/verify-pin',
+  '/api/auth/pin-required',
+  '/api/auth/session',
+  '/health',
+  '/api/health',
+  '/config.js',
+  '/assets/',
+  '/js/',
+  '/styles.css',
+  '/manifest.json',
+  '/asset-manifest.json',
+  '/service-worker.js',
+  '/share/',
+  '/share.html',
+  // Only the public share router is mounted here (see below).
+  '/api/shares/',
+];
 
-  // Token read routes stay public. Management routes stay on the auth path
-  // so a missing PIN cannot list or rewrite shares.
-  if (
-    publicPaths.some((path) => req.path.startsWith(path)) ||
-    isPublicShareRequest(req.method, req.originalUrl || req.path)
-  ) {
+app.use((req, res, next) => {
+  if (PUBLIC_PATH_PREFIXES.some((prefix) => req.path.startsWith(prefix))) {
     return next();
   }
-
-  // For all other paths, apply both origin validation and auth middleware
   originValidationMiddleware(req, res, () => {
     demoMiddleware(req, res, next);
   });
@@ -99,13 +96,16 @@ app.use((req, res, next) => {
 const { router: uploadRouter } = require('./routes/upload');
 const fileRoutes = require('./routes/files');
 const authRoutes = require('./routes/auth');
-const { router: shareRoutes } = require('./routes/shares');
+const {
+  publicRouter: publicShareRoutes,
+  manageRouter: manageShareRoutes,
+} = require('./routes/shares');
 const notFound = (req, res) => {
   res.status(404).json({ error: 'Not found' });
 };
+const requireUpload = requireAccess('upload');
+const requireManage = requireAccess('manage');
 
-// Use routes with appropriate middleware
-// Apply strict rate limiting to PIN verification, but more permissive to status checks
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
@@ -113,131 +113,131 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
+// Status reads get a loose limit; PIN guesses get the strict one.
 app.use('/api/auth/pin-required', pinStatusLimiter);
+app.use('/api/auth/session', pinStatusLimiter);
 app.use('/api/auth/logout', pinStatusLimiter);
 app.use('/api/auth', pinVerifyLimiter, authRoutes);
-app.use('/api/upload/init', requirePin(config.pin), initUploadLimiter);
-app.use('/api/upload/chunk', requirePin(config.pin), chunkUploadLimiter);
-app.use('/api/upload', requirePin(config.pin), uploadRouter);
 
-if (config.uploadOnly) {
-  // Drop-box mode: uploads stay available, management and public shares do not.
+app.use('/api/upload/init', requireUpload, initUploadLimiter);
+app.use('/api/upload/chunk', requireUpload, chunkUploadLimiter);
+app.use('/api/upload', requireUpload, uploadRouter);
+
+if (config.managementMode === 'off') {
+  // Drop-box mode with no admin PIN: no library, no shares.
   app.use('/api/files', notFound);
   app.use('/api/shares', notFound);
   app.get('/share/:token', (req, res) => {
     res.status(404).type('text/plain').send('Not found');
   });
 } else {
-  app.use('/api/files/share', requirePin(config.pin), shareRoutes);
-  app.use('/api/files/shares', requirePin(config.pin), shareRoutes);
-  app.use('/api/files', requirePin(config.pin), downloadLimiter, fileRoutes);
-  // Share PIN guesses use the same tight limiter as /api/auth/verify-pin.
+  // Management: create/list/edit/delete shares, and the file library.
+  app.use('/api/files/share', requireManage, manageShareRoutes);
+  app.use('/api/files/shares', requireManage, manageShareRoutes);
+  app.use('/api/files', requireManage, downloadLimiter, fileRoutes);
+
+  // Public share links. Share PIN guesses use the strict PIN limiter.
   app.use('/api/shares/:token/auth', (req, res, next) => {
     if (req.method !== 'POST') return next();
     return pinVerifyLimiter(req, res, next);
   });
-  app.use(
-    '/api/shares',
-    (req, res, next) => {
-      if (isPublicShareRequest(req.method, req.originalUrl || req.path)) return next();
-      return requirePin(config.pin)(req, res, next);
-    },
-    downloadLimiter,
-    shareRoutes
-  );
+  app.use('/api/shares', downloadLimiter, publicShareRoutes);
 
   app.get('/share/:token', (req, res) => {
-    let html = fs.readFileSync(path.join(__dirname, '../public', 'share.html'), 'utf8');
+    let html = fs.readFileSync(path.join(PUBLIC_DIR, 'share.html'), 'utf8');
     html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
-    html = html.replace('{{SHARE_TOKEN}}', String(req.params.token).replace(/"/g, ''));
-    html = html.replace(
-      /{{BASE_URL}}/g,
-      config.baseUrl.endsWith('/') ? config.baseUrl : config.baseUrl + '/'
-    );
-    html = html.replace(
-      '{{APP_CONFIG}}',
-      JSON.stringify({
-        basePath: new URL(config.baseUrl).pathname || '/',
-      })
-    );
+    html = html.replace('{{SHARE_TOKEN}}', String(req.params.token).replace(/[^A-Za-z0-9_-]/g, ''));
+    html = html.replace(/{{BASE_URL}}/g, baseUrlWithSlash());
+    html = html.replace('{{APP_CONFIG}}', JSON.stringify({ basePath: basePath() }));
     res.send(html);
   });
 }
 
-// Root route
-app.get('/', (req, res) => {
-  // Check if the PIN is configured and the cookie exists
-  if (
-    config.pin &&
-    (!req.cookies?.DUMBDROP_PIN || !safeCompare(req.cookies.DUMBDROP_PIN, config.pin))
-  ) {
-    return res.redirect('/login.html');
-  }
+function baseUrlWithSlash() {
+  return config.baseUrl.endsWith('/') ? config.baseUrl : config.baseUrl + '/';
+}
 
-  let html = fs.readFileSync(path.join(__dirname, '../public', 'index.html'), 'utf8');
-  html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
-  html = html.replace('{{APP_CONFIG}}', JSON.stringify(indexAppConfig()));
-  html = injectDemoBanner(html);
-  res.send(html);
-});
+function basePath() {
+  return new URL(config.baseUrl).pathname || '/';
+}
 
 /**
- * Client-side settings injected into index.html.
+ * Client-side settings injected into index.html, for this visitor's session.
+ * @param {import('express').Request} req
  */
-function indexAppConfig() {
+function indexAppConfig(req) {
+  const role = sessionRole(req);
+  const manage = canManage(role);
+  const adminMode = config.managementMode === 'admin';
   return {
     autoUpload: config.autoUpload,
     maxRetries: config.clientMaxRetries,
-    showFileList: config.showFileList && !config.uploadOnly,
-    uploadOnly: config.uploadOnly,
+    // With an admin PIN the library is the admin's tool, so it is always on for them.
+    showFileList: manage && (config.showFileList || (adminMode && role === 'admin')),
+    uploadOnly: !manage,
     maxStorageBytes: config.maxStorageBytes,
+    // Protected shares use DUMBDROP_PIN.
     pinEnabled: Boolean(config.pin),
-    basePath: new URL(config.baseUrl).pathname || '/',
+    signedIn: Boolean(role),
+    role,
+    adminSignIn: adminMode && role !== 'admin',
+    basePath: basePath(),
     maxFileSize: config.maxFileSize,
     uploadConcurrency: config.uploadConcurrency,
     uploadChunkBytes: config.uploadChunkMb * 1024 * 1024,
   };
 }
 
-// Login route
+function sendIndex(req, res) {
+  if (config.pin && !sessionRole(req)) {
+    return res.redirect('login.html');
+  }
+  res.set('Cache-Control', 'no-store');
+  let html = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+  html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
+  html = html.replace('{{APP_CONFIG}}', JSON.stringify(indexAppConfig(req)));
+  html = html.replace(/{{BASE_URL}}/g, baseUrlWithSlash());
+  html = injectDemoBanner(html);
+  res.send(html);
+}
+
+app.get('/', sendIndex);
+app.get('/index.html', sendIndex);
+
 app.get('/login.html', (req, res) => {
-  // Add cache control headers
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.set('Pragma', 'no-cache');
   res.set('Expires', '0');
 
-  let html = fs.readFileSync(path.join(__dirname, '../public', 'login.html'), 'utf8');
+  let html = fs.readFileSync(path.join(PUBLIC_DIR, 'login.html'), 'utf8');
   html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
-  html = html.replace(
-    '{{APP_CONFIG}}',
-    JSON.stringify({
-      basePath: new URL(config.baseUrl).pathname || '/',
-    })
-  );
+  html = html.replace('{{APP_CONFIG}}', JSON.stringify({ basePath: basePath() }));
   html = injectDemoBanner(html);
   res.send(html);
 });
 
-// Serve static files with template variable replacement for HTML files
+// Unknown API routes answer in JSON like the rest of the API.
+app.use('/api', notFound);
+
+// Other HTML pages get template values filled in.
 app.use((req, res, next) => {
   if (!req.path.endsWith('.html')) {
     return next();
   }
+  if (config.managementMode === 'off' && req.path === '/share.html') {
+    return res.status(404).type('text/plain').send('Not found');
+  }
 
-  if (config.uploadOnly && req.path === '/share.html') {
+  // req.path is not normalized, so "/../x.html" would leave public/ without this.
+  const filePath = path.resolve(PUBLIC_DIR, `.${req.path}`);
+  if (!filePath.startsWith(PUBLIC_DIR + path.sep)) {
     return res.status(404).type('text/plain').send('Not found');
   }
 
   try {
-    const filePath = path.join(__dirname, '../public', req.path);
     let html = fs.readFileSync(filePath, 'utf8');
     html = html.replace(/{{SITE_TITLE}}/g, config.siteTitle);
-    if (req.path === '/index.html' || req.path === 'index.html') {
-      html = html.replace('{{APP_CONFIG}}', JSON.stringify(indexAppConfig()));
-    }
-    // Ensure baseUrl has a trailing slash
-    const baseUrlWithSlash = config.baseUrl.endsWith('/') ? config.baseUrl : config.baseUrl + '/';
-    html = html.replace(/{{BASE_URL}}/g, baseUrlWithSlash);
+    html = html.replace(/{{BASE_URL}}/g, baseUrlWithSlash());
     html = injectDemoBanner(html);
     res.send(html);
   } catch {
@@ -246,7 +246,7 @@ app.use((req, res, next) => {
 });
 
 // Serve remaining static files
-app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.static(PUBLIC_DIR));
 
 // Error handling middleware
 // Express requires all 4 parameters for error handling middleware
@@ -299,13 +299,18 @@ async function initialize() {
     // Log configuration
     logger.info(`Maximum file size set to: ${config.maxFileSize / (1024 * 1024)}MB`);
     if (config.pin) {
-      logger.info('PIN protection enabled');
+      logger.info('PIN protection enabled for uploads');
     } else if (config.nodeEnv === 'production') {
-      logger.warn('PIN protection is disabled via ALLOW_INSECURE_NO_PIN');
+      logger.warn('Uploads need no PIN (ALLOW_INSECURE_NO_PIN=true)');
     }
-    if (config.uploadOnly) {
-      logger.info('Upload-only mode enabled (list, download, rename, delete, and shares are off)');
-    }
+    const managementLog = {
+      admin: 'File management (list, download, rename, delete, shares) needs the admin PIN',
+      off: 'Upload-only mode: list, download, rename, delete, and shares are off',
+      pin: config.pin
+        ? 'File management is open to anyone with the PIN'
+        : 'File management is open to everyone (no PIN set)',
+    };
+    logger.info(managementLog[config.managementMode]);
     if (config.maxStorageBytes > 0) {
       logger.info(`Storage quota set to ${config.maxStorageBytes / (1024 * 1024)}MB`);
     }

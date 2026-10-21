@@ -18,7 +18,7 @@
       <section class="card auth-card">
         <img class="brand-mark brand-mark-lg" src="assets/icon.svg" alt="" width="44" height="44" />
         <h1 class="auth-title">{{SITE_TITLE}}</h1>
-        <p class="muted small">Enter your PIN to continue.</p>
+        <p class="muted small" id="pin-prompt">Enter your PIN to continue.</p>
         <form id="pin-form" class="auth-form">
           <input
             id="pin-input"
@@ -34,6 +34,7 @@
           <button class="btn btn-primary btn-block btn-lg" type="submit">Continue</button>
         </form>
         <p id="pin-error" class="error-message" role="alert"></p>
+        <a id="skip-login" class="btn btn-ghost btn-block" href="./" hidden>Upload without signing in</a>
       </section>
     </main>
   </body>

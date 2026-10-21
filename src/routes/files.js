@@ -14,6 +14,7 @@ const {
   formatFileSize,
   sanitizeFilenameSafe,
   isPathWithinUploadDir,
+  checkUserPath,
 } = require('../utils/fileUtils');
 const { noteDeleted } = require('../utils/storageQuota');
 
@@ -56,23 +57,38 @@ function splatPath(req) {
 }
 
 /**
- * Reject lexical traversal and symlinks that point outside the upload dir.
- * Missing files that are lexically inside return 404 so a typo is not a 403.
- * @returns {Promise<boolean>} true when a response was already sent
+ * Resolve the request's path to an existing item a user may act on.
+ * Refuses traversal (403), hidden or internal paths such as .metadata and the
+ * upload root (404), missing items (404), and symlinks that point outside
+ * the upload directory (403). Sends the response itself on refusal.
+ * @returns {Promise<string|null>} absolute path, or null when a response was sent
  */
-async function rejectUnsafeExistingPath(res, absolutePath, displayPath) {
+async function resolveExistingUserPath(req, res) {
+  const displayPath = splatPath(req);
+  const checked = checkUserPath(displayPath);
+  if (!checked.ok) {
+    if (checked.reason === 'traversal') {
+      logger.warn(`Blocked path traversal: ${displayPath}`);
+      res.status(403).json({ error: 'Access denied' });
+    } else {
+      res.status(404).json({ error: 'File not found' });
+    }
+    return null;
+  }
+
+  const absolutePath = path.join(config.uploadDir, checked.path);
   if (!isPathWithinUploadDir(absolutePath, config.uploadDir, false)) {
     logger.warn(`Blocked path outside upload directory: ${displayPath}`);
     res.status(403).json({ error: 'Access denied' });
-    return true;
+    return null;
   }
 
   try {
-    await fs.access(absolutePath);
+    await fs.lstat(absolutePath);
   } catch (err) {
     if (err.code === 'ENOENT') {
       res.status(404).json({ error: 'File not found' });
-      return true;
+      return null;
     }
     throw err;
   }
@@ -81,19 +97,18 @@ async function rejectUnsafeExistingPath(res, absolutePath, displayPath) {
   if (!isPathWithinUploadDir(absolutePath, config.uploadDir, true)) {
     logger.warn(`Blocked symlink escape: ${displayPath}`);
     res.status(403).json({ error: 'Access denied' });
-    return true;
+    return null;
   }
-  return false;
+  return absolutePath;
 }
 
 /**
  * Get file information
  */
 router.get('/info/*splat', async (req, res) => {
-  const filePath = path.join(config.uploadDir, splatPath(req));
-
   try {
-    if (await rejectUnsafeExistingPath(res, filePath, splatPath(req))) return;
+    const filePath = await resolveExistingUserPath(req, res);
+    if (!filePath) return;
 
     const stats = await fs.stat(filePath);
     const fileInfo = {
@@ -116,12 +131,15 @@ router.get('/info/*splat', async (req, res) => {
  * Download file
  */
 router.get('/download/*splat', async (req, res) => {
-  // Get the file path from the wildcard parameter
-  const filePath = path.join(config.uploadDir, splatPath(req));
   const fileName = path.basename(splatPath(req));
 
   try {
-    if (await rejectUnsafeExistingPath(res, filePath, splatPath(req))) return;
+    const filePath = await resolveExistingUserPath(req, res);
+    if (!filePath) return;
+    const fileStats = await fs.stat(filePath);
+    if (!fileStats.isFile()) {
+      return res.status(400).json({ error: 'Only files can be downloaded' });
+    }
 
     // Set headers for download with safe Content-Disposition
     res.setHeader('Content-Disposition', createSafeContentDisposition(fileName));
@@ -187,7 +205,9 @@ async function getDirectoryContents(dirPath, relativePath = '') {
       const itemRelativePath = relativePath ? `${relativePath}/${entry}` : entry;
 
       try {
-        const stats = await fs.stat(fullPath);
+        // lstat, not stat: symlinks are left out of the library. Following
+        // them could list files outside the upload directory or loop forever.
+        const stats = await fs.lstat(fullPath);
 
         if (stats.isDirectory()) {
           const subItems = await getDirectoryContents(fullPath, itemRelativePath);
@@ -263,13 +283,12 @@ function countFiles(items) {
  * Delete file or directory
  */
 router.delete('/*splat', async (req, res) => {
-  // Get the file/directory path from the wildcard parameter
-  const itemPath = path.join(config.uploadDir, splatPath(req));
-
   try {
-    if (await rejectUnsafeExistingPath(res, itemPath, splatPath(req))) return;
+    const itemPath = await resolveExistingUserPath(req, res);
+    if (!itemPath) return;
 
-    const stats = await fs.stat(itemPath);
+    // lstat: deleting a symlink removes the link, never what it points to.
+    const stats = await fs.lstat(itemPath);
 
     if (stats.isDirectory()) {
       // Delete directory recursively
@@ -302,12 +321,10 @@ router.put('/rename/*splat', async (req, res) => {
     return res.status(400).json({ error: 'New name is required' });
   }
 
-  // Get the current file/directory path from the wildcard parameter
-  const currentPath = path.join(config.uploadDir, splatPath(req));
-  const currentDir = path.dirname(currentPath);
-
   try {
-    if (await rejectUnsafeExistingPath(res, currentPath, splatPath(req))) return;
+    const currentPath = await resolveExistingUserPath(req, res);
+    if (!currentPath) return;
+    const currentDir = path.dirname(currentPath);
 
     const stats = await fs.stat(currentPath);
 

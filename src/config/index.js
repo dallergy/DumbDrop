@@ -18,6 +18,7 @@ const fs = require('fs'); // Get version from package.json
  * UPLOAD_ONLY         - Disable list, download, rename, delete, and shares (true/false)
  * MAX_STORAGE_MB      - Total upload-directory quota in MB (0 or unset = unlimited)
  * DUMBDROP_PIN        - Security PIN for uploads (required in production)
+ * DUMBDROP_ADMIN_PIN  - Optional second PIN; when set, only it unlocks file management
  * ALLOW_INSECURE_NO_PIN - Set true to boot production without a PIN
  * DUMBDROP_TITLE      - Site title (default: 'DumbDrop')
  * APPRISE_URL         - Apprise notification URL (optional)
@@ -194,6 +195,12 @@ const config = {
    */
   pin: validatePin(process.env.DUMBDROP_PIN),
   /**
+   * Optional admin PIN. When set, list/download/rename/delete/shares need an
+   * admin session and DUMBDROP_PIN only unlocks uploads.
+   * Set via DUMBDROP_ADMIN_PIN in .env
+   */
+  adminPin: validatePin(process.env.DUMBDROP_ADMIN_PIN),
+  /**
    * Trust proxy for X-Forwarded-For header (default: false for security)
    * Only enable if behind a trusted reverse proxy
    * Set via TRUST_PROXY in .env
@@ -299,9 +306,37 @@ const config = {
 
 console.log(`Upload directory configured as: ${config.uploadDir}`);
 
+/**
+ * Who may use file management (list, download, rename, delete, shares):
+ *   'admin' - DUMBDROP_ADMIN_PIN is set; only an admin session
+ *   'off'   - UPLOAD_ONLY=true with no admin PIN; routes return 404
+ *   'pin'   - anyone who passes DUMBDROP_PIN (or everyone when no PIN)
+ */
+config.managementMode = config.adminPin ? 'admin' : config.uploadOnly ? 'off' : 'pin';
+
+/**
+ * A PIN variable that is set but not 4-10 digits used to switch
+ * authentication off without a word. Report it instead.
+ * @param {string} name
+ * @param {string|null} parsed
+ * @param {string[]} errors
+ */
+function checkPinVariable(name, parsed, errors) {
+  const raw = process.env[name];
+  if (raw !== undefined && raw.trim() !== '' && !parsed) {
+    errors.push(`${name} must be 4-10 digits (got a value that is not).`);
+  }
+}
+
 // Validate required settings
 function validateConfig() {
   const errors = [];
+
+  checkPinVariable('DUMBDROP_PIN', config.pin, errors);
+  checkPinVariable('DUMBDROP_ADMIN_PIN', config.adminPin, errors);
+  if (config.pin && config.adminPin && config.pin === config.adminPin) {
+    errors.push('DUMBDROP_ADMIN_PIN must be different from DUMBDROP_PIN.');
+  }
 
   if (config.maxFileSize <= 0) {
     errors.push('MAX_FILE_SIZE must be greater than 0');
@@ -329,7 +364,16 @@ function validateConfig() {
     if (!config.pin && !allowInsecureNoPin) {
       errors.push(
         'DUMBDROP_PIN is required when NODE_ENV=production. ' +
-          'Set a 4-10 digit PIN, or set ALLOW_INSECURE_NO_PIN=true to disable authentication.'
+          'Set a 4-10 digit PIN, or set ALLOW_INSECURE_NO_PIN=true to let anyone upload' +
+          (config.adminPin ? '.' : ' and manage files.')
+      );
+    }
+    // Behind a TLS proxy without TRUST_PROXY every client shares the proxy's
+    // address, so one person's wrong PINs lock everybody out.
+    if (config.baseUrl.startsWith('https') && !config.trustProxy) {
+      logger.warn(
+        'BASE_URL is https but TRUST_PROXY is off. If a reverse proxy terminates TLS, set ' +
+          'TRUST_PROXY=true and TRUSTED_PROXY_IPS, or all clients share one lockout and rate limit.'
       );
     }
   }

@@ -195,6 +195,11 @@ export class FileListManager {
       if (!this.loaded) this.uploadedFilesContent.replaceChildren(emptyRow('Loading…'));
       this.refreshBtn.disabled = true;
       const response = await fetch(apiUrl('/api/files'));
+      if (response.status === 401) {
+        // Session ended (logout elsewhere, PIN changed, or expired).
+        window.location.href = apiUrl('/login.html');
+        return;
+      }
       if (!response.ok) throw new Error(`Could not load files (HTTP ${response.status})`);
       const data = await response.json();
       this.items = data.items || [];
@@ -551,6 +556,7 @@ export class FileListManager {
         throw new Error(error.error || 'Delete failed');
       }
       toast(`${itemType === 'directory' ? 'Folder' : 'File'} deleted`);
+      window.dispatchEvent(new CustomEvent('dumbdrop:files-changed'));
       this.loadFiles();
     } catch (error) {
       toast(error.message, false);

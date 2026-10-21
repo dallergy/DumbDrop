@@ -70,10 +70,10 @@ const pinVerifyLimiter = createLimiter({
   legacyHeaders: false,
   // Use secure IP extraction to prevent header spoofing
   keyGenerator: (req) => ipKeyGenerator(getClientIp(req)),
-  // Apply strict rate limiting only to PIN verification, not PIN status checks
-  skip: (req) => {
-    return req.path === '/pin-required'; // Skip rate limiting for PIN requirement checks
-  }
+  // Only failed guesses count, so signing in a few times is never throttled.
+  skipSuccessfulRequests: true,
+  // Status reads (GET /pin-required, GET /session) are not guesses.
+  skip: (req) => req.method === 'GET',
 });
 
 /**

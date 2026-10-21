@@ -17,6 +17,7 @@ const {
   sanitizePathPreserveDirsSafe,
   isValidBatchId,
   isPathWithinUploadDir,
+  formatFileSize,
 } = require('../utils/fileUtils');
 const { sendNotification } = require('../services/notifications');
 const { isDemoMode } = require('../utils/demoMode');
@@ -27,7 +28,12 @@ const {
   isComplete,
   missingRanges,
 } = require('../utils/byteRanges');
-const { reserveStorage, commitStored, releaseReservation } = require('../utils/storageQuota');
+const {
+  reserveStorage,
+  commitStored,
+  releaseReservation,
+  getStorageStatus,
+} = require('../utils/storageQuota');
 
 // --- Persistence Setup ---
 const METADATA_DIR = path.join(config.uploadDir, '.metadata');
@@ -353,6 +359,18 @@ if (!process.env.DISABLE_BATCH_CLEANUP) {
 // --- Routes ---
 
 // Initialize upload
+/**
+ * Storage quota status for the upload page. { quota: null } when unlimited.
+ */
+router.get('/storage', async (req, res) => {
+  try {
+    res.json({ quota: await getStorageStatus() });
+  } catch (err) {
+    logger.error(`Storage status failed: ${err.message}`);
+    res.status(500).json({ error: 'Could not read storage status' });
+  }
+});
+
 router.post('/init', async (req, res) => {
   // DEMO MODE CHECK - Bypass persistence if in demo mode
   if (isDemoMode()) {
@@ -443,10 +461,14 @@ router.post('/init', async (req, res) => {
           `reserved ${quota.reservedBytes}, incoming ${size}, limit ${quota.limit}`
       );
       return res.status(507).json({
-        error: 'Storage quota exceeded',
+        error:
+          `Not enough storage space: ${formatFileSize(quota.freeBytes)} left, ` +
+          `this file needs ${formatFileSize(size)}.`,
+        code: 'STORAGE_QUOTA_EXCEEDED',
         limit: quota.limit,
         used: quota.usedBytes,
         reserved: quota.reservedBytes,
+        free: quota.freeBytes,
       });
     }
     holdingReservation = true;

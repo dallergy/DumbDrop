@@ -420,7 +420,33 @@ function isPathWithinUploadDir(filePath, uploadDir, requireExists = false) {
   }
 }
 
+/**
+ * Check a client-supplied path relative to the upload directory.
+ *
+ * Uploads strip leading dots from every name, so a segment that starts with
+ * "." is never user content: it is "..", ".", or app data such as .metadata
+ * (share grants and the session key). Management and share routes must not
+ * act on those, or on the upload root itself.
+ *
+ * @param {unknown} input - Relative path from a URL or request body
+ * @returns {{ok: true, path: string} | {ok: false, reason: 'traversal'|'hidden'|'empty'}}
+ */
+function checkUserPath(input) {
+  if (typeof input !== 'string') return { ok: false, reason: 'empty' };
+  const parts = input
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((part) => part.length > 0);
+  if (parts.includes('..')) return { ok: false, reason: 'traversal' };
+  if (parts.length === 0) return { ok: false, reason: 'empty' };
+  if (parts.some((part) => part.startsWith('.') || part.includes('\0'))) {
+    return { ok: false, reason: 'hidden' };
+  }
+  return { ok: true, path: parts.join('/') };
+}
+
 module.exports = {
+  checkUserPath,
   formatFileSize,
   calculateDirectorySize,
   ensureDirectoryExists,

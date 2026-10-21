@@ -38,6 +38,9 @@ services:
             # Required in production. 4-10 digits. Compose fails fast when this is unset.
             # Set ALLOW_INSECURE_NO_PIN=true only for a private demo with no authentication.
             DUMBDROP_PIN: ${DUMBDROP_PIN:?Set DUMBDROP_PIN to a 4-10 digit PIN}
+            # Optional second PIN. When set, only it unlocks list/download/rename/delete/shares
+            # and DUMBDROP_PIN can only upload.
+            # DUMBDROP_ADMIN_PIN: ${DUMBDROP_ADMIN_PIN}
             AUTO_UPLOAD: "true"
             # File listing, download, rename, delete, and shares. Leave false for a drop box.
             SHOW_FILE_LIST: "false"

@@ -55,4 +55,22 @@ describe('Production PIN requirement', () => {
     const result = boot({ DUMBDROP_PIN: '123456', ALLOW_INSECURE_NO_PIN: '' });
     assert.strictEqual(result.status, 0, result.stderr);
   });
+  it('refuses a PIN that is set but malformed instead of silently disabling it', () => {
+    for (const pin of ['12', '12345678901', 'abc']) {
+      const result = boot({ DUMBDROP_PIN: pin, ALLOW_INSECURE_NO_PIN: 'true' });
+      assert.strictEqual(result.status, 2, `DUMBDROP_PIN=${pin}`);
+      assert.match(`${result.stderr}\n${result.stdout}`, /DUMBDROP_PIN must be 4-10 digits/);
+    }
+  });
+
+  it('refuses an admin PIN equal to the upload PIN', () => {
+    const result = boot({ DUMBDROP_PIN: '123456', DUMBDROP_ADMIN_PIN: '123456' });
+    assert.strictEqual(result.status, 2);
+    assert.match(`${result.stderr}\n${result.stdout}`, /must be different/);
+  });
+
+  it('starts with an upload PIN and a separate admin PIN', () => {
+    const result = boot({ DUMBDROP_PIN: '123456', DUMBDROP_ADMIN_PIN: '654321' });
+    assert.strictEqual(result.status, 0, result.stderr);
+  });
 });

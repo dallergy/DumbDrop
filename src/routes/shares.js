@@ -1,6 +1,13 @@
 /**
- * Secure, token-based file and folder sharing.
- * Handles share CRUD, public access, cached ZIP archives, and QR PNG output.
+ * Token-based file and folder sharing.
+ *
+ * Two routers, mounted separately in app.js:
+ *   publicRouter - what a share link needs: view, QR, download, share PIN.
+ *                  Mounted at /api/shares with no owner check.
+ *   manageRouter - create, list, update, delete. Mounted only behind the
+ *                  management guard (/api/files/share and /api/files/shares).
+ * Keeping them apart means a management route can never be reached through
+ * the public mount, whatever the URL looks like.
  */
 
 const crypto = require('crypto');
@@ -10,37 +17,94 @@ const fs = require('fs');
 const fsp = fs.promises;
 const QRCode = require('qrcode');
 const { config } = require('../config');
+const logger = require('../utils/logger');
 const { safeCompare, isLockedOut, recordAttempt, resetAttempts } = require('../utils/security');
 const { getClientIp } = require('../utils/ipExtractor');
-const { secureCookie, requirePin } = require('../middleware/security');
-const { isPathWithinUploadDir, formatFileSize } = require('../utils/fileUtils');
+const { sessionRole } = require('../utils/sessions');
+const { secureCookie } = require('../middleware/security');
+const { isPathWithinUploadDir, formatFileSize, checkUserPath } = require('../utils/fileUtils');
 const { getOrCreateShareZip, deleteShareArchive } = require('../utils/shareArchives');
 
-const router = express.Router();
-// Management routes check the owner PIN here as well as at the mount, so a
-// gap in isPublicShareRequest cannot expose them.
-const requireOwnerPin = (req, res, next) => requirePin(config.pin)(req, res, next);
+const publicRouter = express.Router();
+const manageRouter = express.Router();
 const storePath = path.join(config.uploadDir, '.metadata', 'shares.json');
+const MAX_EXPIRY_SECONDS = 30 * 86400;
+// crypto.randomBytes(18).toString('base64url') is 24 characters.
+const TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
+
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
 
 async function readShares() {
   try {
-    return JSON.parse(await fsp.readFile(storePath, 'utf8'));
+    const parsed = JSON.parse(await fsp.readFile(storePath, 'utf8'));
+    // A prototype-free object, so a token like "__proto__" is just a missing key.
+    return Object.assign(Object.create(null), parsed);
   } catch (error) {
     if (error.code === 'ENOENT') {
-      return {};
+      return Object.create(null);
     }
     throw error;
   }
 }
 
 async function writeShares(shares) {
-  const temporary = `${storePath}.${process.pid}.tmp`;
+  await fsp.mkdir(path.dirname(storePath), { recursive: true });
+  const temporary = `${storePath}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   await fsp.writeFile(temporary, JSON.stringify(shares, null, 2), { mode: 0o600 });
   await fsp.rename(temporary, storePath);
 }
 
+let storeTail = Promise.resolve();
+
+/**
+ * Read, change, and write the share store with no other change in between.
+ * Concurrent creates and edits otherwise overwrite each other.
+ * @template T
+ * @param {(shares: Record<string, any>) => Promise<T>|T} mutate
+ * @returns {Promise<T>}
+ */
+function updateShares(mutate) {
+  const run = storeTail.then(async () => {
+    const shares = await readShares();
+    const result = await mutate(shares);
+    await writeShares(shares);
+    return result;
+  });
+  storeTail = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+/**
+ * Look a share up by token. Returns null for malformed tokens.
+ * @param {Record<string, any>} shares
+ * @param {unknown} token
+ */
+function findShare(shares, token) {
+  if (typeof token !== 'string' || !TOKEN_PATTERN.test(token)) return null;
+  return Object.hasOwn(shares, token) ? shares[token] : null;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function newGrant() {
   return crypto.randomBytes(32).toString('hex');
+}
+
+/**
+ * Seconds from a request body to an ISO expiry, or null for "never".
+ * @param {unknown} value
+ */
+function expiryFrom(value) {
+  const seconds = Number(value || 0);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return new Date(Date.now() + Math.min(seconds, MAX_EXPIRY_SECONDS) * 1000).toISOString();
 }
 
 /**
@@ -55,36 +119,10 @@ function toShareResponse(share, extra = {}) {
     authRequired: share.authRequired,
     createdAt: share.createdAt,
     expiresAt: share.expiresAt,
+    url: shareUrl(share.token),
+    qrUrl: `/api/shares/${share.token}/qr.png`,
     ...extra,
   };
-}
-
-/**
- * Public share routes do not require the owner PIN.
- * Management routes (list, create, update, delete) do.
- * Accepts either the full URL path or the path Express exposes inside the mount.
- * Express matches routes case-insensitively, so this check must too:
- * otherwise /api/shares/MANAGE looks public but still reaches GET /manage.
- * @param {string} method
- * @param {string} requestPath
- * @returns {boolean}
- */
-function isPublicShareRequest(method, requestPath) {
-  const pathname = String(requestPath || '')
-    .split('?')[0]
-    .toLowerCase();
-  const prefix = '/api/shares';
-  let subpath = pathname;
-  if (pathname === prefix) subpath = '/';
-  else if (pathname.startsWith(`${prefix}/`)) subpath = pathname.slice(prefix.length);
-
-  if (method === 'GET') {
-    return /^\/(?!manage(?:\/|$))[^/]+(?:\/(?:qr\.png|download|file(?:\/.*)?))?$/.test(subpath);
-  }
-  if (method === 'POST') {
-    return /^\/[^/]+\/auth$/.test(subpath);
-  }
-  return false;
 }
 
 function shareUrl(token) {
@@ -107,8 +145,15 @@ async function renderShareQrPng(url, res) {
   });
 }
 
+/**
+ * Whether this request may open a PIN-protected share.
+ * The share PIN is DUMBDROP_PIN, so a signed-in session already proves it.
+ */
 function hasAccess(req, share) {
   if (!share.authRequired) {
+    return true;
+  }
+  if (sessionRole(req)) {
     return true;
   }
   const grant = req.cookies?.[`DUMBDROP_SHARE_${share.token}`];
@@ -118,12 +163,13 @@ function hasAccess(req, share) {
 async function resolveShare(req, res, next) {
   try {
     const shares = await readShares();
-    const share = shares[req.params.token];
+    const share = findShare(shares, req.params.token);
     if (!share || isShareExpired(share)) {
       return res.status(404).json({ error: 'This share does not exist or has expired.' });
     }
-    const itemPath = path.join(config.uploadDir, share.path);
-    if (!isPathWithinUploadDir(itemPath, config.uploadDir, true)) {
+    const checked = checkUserPath(share.path);
+    const itemPath = checked.ok ? path.join(config.uploadDir, checked.path) : null;
+    if (!itemPath || !isPathWithinUploadDir(itemPath, config.uploadDir, true)) {
       return res.status(404).json({ error: 'The shared item is no longer available.' });
     }
     req.share = share;
@@ -134,15 +180,15 @@ async function resolveShare(req, res, next) {
   }
 }
 
-function resolveSharedFilePath(share, relativePath) {
-  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
-  const targetPath = path.join(config.uploadDir, share.path, normalized);
-  const shareRoot = path.join(config.uploadDir, share.path);
-
-  if (!normalized || !isPathWithinUploadDir(targetPath, shareRoot, true)) {
-    return null;
-  }
-
+/**
+ * Absolute path of a file inside a shared folder, or null.
+ * Hidden names and symlinks that leave the shared folder are refused.
+ */
+function resolveSharedFilePath(req, relativePath) {
+  const checked = checkUserPath(relativePath);
+  if (!checked.ok) return null;
+  const targetPath = path.join(req.sharePath, checked.path);
+  if (!isPathWithinUploadDir(targetPath, req.sharePath, true)) return null;
   return targetPath;
 }
 
@@ -150,30 +196,41 @@ function sumSizes(items = []) {
   return items.reduce((total, item) => total + (item.size || 0), 0);
 }
 
+/**
+ * Folder listing for a share page. Symlinks and hidden names are left out,
+ * matching what the ZIP download contains.
+ */
 async function buildShareTree(dirPath, relativeBase = '') {
   const entries = await fsp.readdir(dirPath, { withFileTypes: true });
   const items = [];
 
-  for (const entry of entries.filter((item) => !item.name.startsWith('.'))) {
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue;
+    if (!entry.isDirectory() && !entry.isFile()) continue;
     const relativePath = relativeBase ? `${relativeBase}/${entry.name}` : entry.name;
     const fullPath = path.join(dirPath, entry.name);
-    const stat = await fsp.stat(fullPath);
-    const node = {
-      name: entry.name,
-      path: relativePath,
-      type: entry.isDirectory() ? 'directory' : 'file',
-      size: stat.size,
-      formattedSize: formatFileSize(stat.size),
-    };
 
     if (entry.isDirectory()) {
-      node.children = await buildShareTree(fullPath, relativePath);
-      // A directory's own stat size is its inode, not its contents.
-      node.size = sumSizes(node.children);
-      node.formattedSize = formatFileSize(node.size);
+      const children = await buildShareTree(fullPath, relativePath);
+      const size = sumSizes(children);
+      items.push({
+        name: entry.name,
+        path: relativePath,
+        type: 'directory',
+        size,
+        formattedSize: formatFileSize(size),
+        children,
+      });
+    } else {
+      const stat = await fsp.lstat(fullPath);
+      items.push({
+        name: entry.name,
+        path: relativePath,
+        type: 'file',
+        size: stat.size,
+        formattedSize: formatFileSize(stat.size),
+      });
     }
-
-    items.push(node);
   }
 
   return items.sort((left, right) => {
@@ -185,89 +242,70 @@ async function buildShareTree(dirPath, relativeBase = '') {
 }
 
 async function removeShare(token) {
-  const shares = await readShares();
-  if (!shares[token]) {
-    return false;
-  }
-
-  delete shares[token];
-  await writeShares(shares);
-  await deleteShareArchive(token);
-  return true;
+  const removed = await updateShares((shares) => {
+    if (!findShare(shares, token)) return false;
+    delete shares[token];
+    return true;
+  });
+  if (removed) await deleteShareArchive(token);
+  return removed;
 }
 
 async function cleanupExpiredShares() {
-  const shares = await readShares();
-  let changed = false;
-
-  for (const [token, share] of Object.entries(shares)) {
-    if (!isShareExpired(share)) {
-      continue;
+  const expired = await updateShares((shares) => {
+    const tokens = [];
+    for (const [token, share] of Object.entries(shares)) {
+      if (isShareExpired(share)) {
+        delete shares[token];
+        tokens.push(token);
+      }
     }
-
-    delete shares[token];
-    await deleteShareArchive(token);
-    changed = true;
-  }
-
-  if (changed) {
-    await writeShares(shares);
-  }
+    return tokens;
+  });
+  for (const token of expired) await deleteShareArchive(token);
 }
 
-router.post('/', requireOwnerPin, async (req, res, next) => {
+// ---------------------------------------------------------------------------
+// Management routes (owner only; guarded where mounted)
+// ---------------------------------------------------------------------------
+
+manageRouter.post('/', async (req, res, next) => {
   try {
-    const relativePath =
-      typeof req.body?.path === 'string' ? req.body?.path.replace(/\\/g, '/') : '';
-    const itemPath = path.join(config.uploadDir, relativePath);
-    if (!relativePath || !isPathWithinUploadDir(itemPath, config.uploadDir, true)) {
+    const checked = checkUserPath(req.body?.path);
+    const itemPath = checked.ok ? path.join(config.uploadDir, checked.path) : null;
+    if (!itemPath || !isPathWithinUploadDir(itemPath, config.uploadDir, true)) {
       return res.status(400).json({ error: 'Choose an existing file or folder.' });
     }
 
     const stats = await fsp.stat(itemPath);
-    const expiresIn = Number(req.body?.expiresIn || 0);
     const token = crypto.randomBytes(18).toString('base64url');
     const authRequired = Boolean(req.body?.authRequired && config.pin);
     const share = {
       token,
-      path: relativePath,
-      name: path.basename(relativePath),
+      path: checked.path,
+      name: path.basename(checked.path),
       type: stats.isDirectory() ? 'directory' : 'file',
       authRequired,
       grant: authRequired ? newGrant() : undefined,
       createdAt: new Date().toISOString(),
-      expiresAt:
-        expiresIn > 0
-          ? new Date(Date.now() + Math.min(expiresIn, 30 * 86400) * 1000).toISOString()
-          : null,
+      expiresAt: expiryFrom(req.body?.expiresIn),
     };
 
-    const shares = await readShares();
-    shares[token] = share;
-    await writeShares(shares);
-
-    res.status(201).json(
-      toShareResponse(share, {
-        url: shareUrl(token),
-        qrUrl: `/api/shares/${token}/qr.png`,
-      })
-    );
+    await updateShares((shares) => {
+      shares[token] = share;
+    });
+    logger.info(`Share created for ${share.path}`);
+    res.status(201).json(toShareResponse(share));
   } catch (error) {
     next(error);
   }
 });
 
-router.get('/manage', requireOwnerPin, async (req, res, next) => {
+manageRouter.get('/manage', async (req, res, next) => {
   try {
     const shares = await readShares();
     const list = Object.values(shares)
-      .map((share) =>
-        toShareResponse(share, {
-          url: shareUrl(share.token),
-          qrUrl: `/api/shares/${share.token}/qr.png`,
-          expired: isShareExpired(share),
-        })
-      )
+      .map((share) => toShareResponse(share, { expired: isShareExpired(share) }))
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
 
     res.json({ shares: list });
@@ -276,64 +314,57 @@ router.get('/manage', requireOwnerPin, async (req, res, next) => {
   }
 });
 
-router.patch('/:token', requireOwnerPin, async (req, res, next) => {
+// This router is mounted at /api/files/share(s), on top of the file routes.
+// When the token is not a share, hand the request on (next('router')), so a
+// user folder named "share" or "shares" can still be managed.
+
+manageRouter.patch('/:token', async (req, res, next) => {
   try {
-    const shares = await readShares();
-    const share = shares[req.params.token];
-    if (!share) {
-      return res.status(404).json({ error: 'Share not found.' });
-    }
+    const updated = await updateShares((shares) => {
+      const share = findShare(shares, req.params.token);
+      if (!share) return null;
 
-    if (req.body?.expiresIn !== undefined) {
-      const expiresIn = Number(req.body?.expiresIn);
-      share.expiresAt =
-        expiresIn > 0
-          ? new Date(Date.now() + Math.min(expiresIn, 30 * 86400) * 1000).toISOString()
-          : null;
-    }
-
-    if (req.body?.authRequired !== undefined) {
-      const nextAuth = Boolean(req.body?.authRequired && config.pin);
-      // A new grant drops cookies issued before the flag changed.
-      if (nextAuth !== Boolean(share.authRequired)) {
-        share.grant = nextAuth ? newGrant() : undefined;
-      } else if (nextAuth && !share.grant) {
-        share.grant = newGrant();
+      if (req.body?.expiresIn !== undefined) {
+        share.expiresAt = expiryFrom(req.body.expiresIn);
       }
-      share.authRequired = nextAuth;
-    }
 
-    shares[req.params.token] = share;
-    await writeShares(shares);
+      if (req.body?.authRequired !== undefined) {
+        const nextAuth = Boolean(req.body.authRequired && config.pin);
+        // A new grant signs out browsers that unlocked the share before.
+        if (nextAuth !== Boolean(share.authRequired) || (nextAuth && !share.grant)) {
+          share.grant = nextAuth ? newGrant() : undefined;
+        }
+        share.authRequired = nextAuth;
+      }
+      return { ...share };
+    });
 
-    res.json(
-      toShareResponse(share, {
-        url: shareUrl(share.token),
-        qrUrl: `/api/shares/${share.token}/qr.png`,
-      })
-    );
+    if (!updated) return next('router');
+    res.json(toShareResponse(updated));
   } catch (error) {
     next(error);
   }
 });
 
-router.delete('/:token', requireOwnerPin, async (req, res, next) => {
+manageRouter.delete('/:token', async (req, res, next) => {
   try {
     const removed = await removeShare(req.params.token);
-    if (!removed) {
-      return res.status(404).json({ error: 'Share not found.' });
-    }
+    if (!removed) return next('router');
     res.json({ success: true });
   } catch (error) {
     next(error);
   }
 });
 
-router.get('/:token', resolveShare, async (req, res, next) => {
+// ---------------------------------------------------------------------------
+// Public routes (anyone with the link)
+// ---------------------------------------------------------------------------
+
+publicRouter.get('/:token', resolveShare, async (req, res, next) => {
   try {
     const stats = await fsp.stat(req.sharePath);
+    const allowed = hasAccess(req, req.share);
     let items;
-
     let size = stats.size;
     if (stats.isDirectory()) {
       items = await buildShareTree(req.sharePath);
@@ -344,18 +375,18 @@ router.get('/:token', resolveShare, async (req, res, next) => {
       name: req.share.name,
       type: req.share.type,
       authRequired: req.share.authRequired,
-      authenticated: hasAccess(req, req.share),
+      authenticated: allowed,
       expiresAt: req.share.expiresAt,
       size,
       formattedSize: formatFileSize(size),
-      items: hasAccess(req, req.share) ? items : undefined,
+      items: allowed ? items : undefined,
     });
   } catch (error) {
     next(error);
   }
 });
 
-router.post('/:token/auth', resolveShare, async (req, res, next) => {
+publicRouter.post('/:token/auth', resolveShare, async (req, res, next) => {
   try {
     if (!req.share.authRequired) {
       return res.json({ authenticated: true });
@@ -363,29 +394,31 @@ router.post('/:token/auth', resolveShare, async (req, res, next) => {
 
     const ip = getClientIp(req);
     if (isLockedOut(ip)) {
-      return res.status(429).json({ error: 'Too many attempts' });
+      return res.status(429).json({ error: 'Too many attempts. Try again later.' });
     }
 
     const pin = req.body?.pin;
     if (!config.pin || typeof pin !== 'string' || !safeCompare(pin, config.pin)) {
-      // This route is only called to attempt a PIN, so empty guesses count too.
+      // This route exists only to try a PIN, so empty guesses count too.
       recordAttempt(ip);
       return res.status(401).json({ error: 'Incorrect PIN.' });
     }
 
     resetAttempts(ip);
 
-    if (!req.share.grant) {
-      const shares = await readShares();
-      const current = shares[req.share.token];
-      if (current) {
-        current.grant = newGrant();
-        req.share.grant = current.grant;
-        await writeShares(shares);
-      }
+    let grant = req.share.grant;
+    if (!grant) {
+      // Shares created before random grants existed get one on first unlock.
+      grant = await updateShares((shares) => {
+        const current = findShare(shares, req.share.token);
+        if (!current) return null;
+        current.grant = current.grant || newGrant();
+        return current.grant;
+      });
+      if (!grant) return res.status(404).json({ error: 'This share no longer exists.' });
     }
 
-    res.cookie(`DUMBDROP_SHARE_${req.share.token}`, req.share.grant, {
+    res.cookie(`DUMBDROP_SHARE_${req.share.token}`, grant, {
       httpOnly: true,
       sameSite: 'strict',
       secure: secureCookie(req),
@@ -402,7 +435,7 @@ router.post('/:token/auth', resolveShare, async (req, res, next) => {
 // Express 5 would otherwise refuse as a dotfile.
 const SEND_OPTIONS = { dotfiles: 'allow' };
 
-router.get('/:token/qr.png', resolveShare, async (req, res, next) => {
+publicRouter.get('/:token/qr.png', resolveShare, async (req, res, next) => {
   try {
     await renderShareQrPng(shareUrl(req.share.token), res);
   } catch (error) {
@@ -410,14 +443,17 @@ router.get('/:token/qr.png', resolveShare, async (req, res, next) => {
   }
 });
 
-router.get('/:token/file/*splat', resolveShare, async (req, res, next) => {
+publicRouter.get('/:token/file/*splat', resolveShare, async (req, res, next) => {
   try {
     if (!hasAccess(req, req.share)) {
       return res.status(401).json({ error: 'PIN required.' });
     }
+    if (req.share.type !== 'directory') {
+      return res.status(404).json({ error: 'File not found in this share.' });
+    }
 
     const relativePath = [].concat(req.params.splat || []).join('/');
-    const targetPath = resolveSharedFilePath(req.share, relativePath);
+    const targetPath = resolveSharedFilePath(req, relativePath);
     if (!targetPath) {
       return res.status(404).json({ error: 'File not found in this share.' });
     }
@@ -433,7 +469,7 @@ router.get('/:token/file/*splat', resolveShare, async (req, res, next) => {
   }
 });
 
-router.get('/:token/download', resolveShare, async (req, res, next) => {
+publicRouter.get('/:token/download', resolveShare, async (req, res, next) => {
   try {
     if (!hasAccess(req, req.share)) {
       return res.status(401).json({ error: 'PIN required.' });
@@ -451,10 +487,11 @@ router.get('/:token/download', resolveShare, async (req, res, next) => {
 });
 
 module.exports = {
-  router,
+  publicRouter,
+  manageRouter,
   readShares,
   writeShares,
+  updateShares,
   removeShare,
   cleanupExpiredShares,
-  isPublicShareRequest,
 };

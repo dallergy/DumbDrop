@@ -13,7 +13,10 @@ open a public issue for an unfixed vulnerability.
   Production refuses to start without a PIN unless `ALLOW_INSECURE_NO_PIN=true`.
 - Behind a reverse proxy, set `TRUST_PROXY=true` and `TRUSTED_PROXY_IPS` to that
   proxy's address so lockouts and rate limits apply per client.
-- Prefer `UPLOAD_ONLY=true` for an internet-facing drop box. Holders of the PIN
-  can upload, and list/download/rename/delete/share routes return 404.
+- For an internet-facing drop box, set `DUMBDROP_ADMIN_PIN`: the upload PIN then
+  only uploads, and only the admin PIN unlocks list/download/rename/delete/share.
+  `UPLOAD_ONLY=true` (with no admin PIN) turns those routes off entirely.
+- Changing a PIN signs out every session that used it. The signing key lives in
+  `<UPLOAD_DIR>/.metadata/session.key`; delete it to sign out everyone.
 - Set `MAX_STORAGE_MB` so a leaked PIN cannot fill the disk.
 - Publish the container on loopback, or only on a Docker network shared with the proxy.

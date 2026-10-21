@@ -1,7 +1,15 @@
 /**
- * Upload directory quota tracking and in-flight reservations.
- * Rejects new uploads that would exceed MAX_STORAGE_MB, including concurrent inits.
- * Refreshes a cached byte total instead of walking the disk on every request.
+ * Storage quota for the upload directory (MAX_STORAGE_MB).
+ *
+ * used     - bytes of finished files, cached and refreshed every 30 s,
+ *            after deletes, and when uploads complete.
+ * reserved - declared size of every upload in progress, held from init
+ *            until completion, cancel, or stale-session cleanup.
+ * An init is refused (507) when used + reserved + new size > limit.
+ *
+ * Counted: user files only. App data under .metadata (upload state, share
+ * list, cached share ZIPs) and *.partial files (covered by reservations) are
+ * not, so downloading a shared folder can never make uploads fail.
  */
 
 const fs = require('fs').promises;
@@ -14,16 +22,17 @@ const METADATA_DIR_NAME = '.metadata';
 
 /** @type {Map<string, number>} uploadId -> declared size still reserved */
 const reservations = new Map();
+let seededFromDisk = false;
 
 let usedBytes = 0;
 let usedAt = 0;
 let lockTail = Promise.resolve();
 
 /**
- * Serialize quota mutations so two inits cannot both pass the same check.
+ * Serialize quota changes so two inits cannot both pass the same check.
+ * @template T
  * @param {() => Promise<T>} fn
  * @returns {Promise<T>}
- * @template T
  */
 function withQuotaLock(fn) {
   const run = lockTail.then(fn, fn);
@@ -39,12 +48,12 @@ function quotaEnabled() {
 }
 
 /**
- * Bytes currently stored, excluding in-progress *.partial files.
- * Those are covered by reservations of the declared size instead.
+ * Bytes of finished user files under target. Does not follow symlinks.
  * @param {string} target
+ * @param {boolean} [isRoot]
  * @returns {Promise<number>}
  */
-async function measureTreeBytes(target) {
+async function measureTreeBytes(target, isRoot = true) {
   let stat;
   try {
     stat = await fs.lstat(target);
@@ -52,100 +61,87 @@ async function measureTreeBytes(target) {
     if (err.code === 'ENOENT') return 0;
     throw err;
   }
-  // Do not follow links. Escaping symlinks are rejected elsewhere, and
-  // counting the target would charge the quota for files we do not own.
   if (stat.isSymbolicLink()) return 0;
-  if (stat.isFile()) {
-    if (target.endsWith('.partial')) return 0;
-    return stat.size;
-  }
+  if (stat.isFile()) return target.endsWith('.partial') ? 0 : stat.size;
   if (!stat.isDirectory()) return 0;
 
-  const names = await fs.readdir(target);
   let total = 0;
-  for (const name of names) {
-    total += await measureTreeBytes(path.join(target, name));
+  for (const name of await fs.readdir(target)) {
+    if (isRoot && name === METADATA_DIR_NAME) continue;
+    total += await measureTreeBytes(path.join(target, name), false);
   }
   return total;
 }
 
 /**
- * Declared sizes of uploads that still have metadata on disk.
- * In-memory reservations win when both exist, so a session is counted once.
- * @returns {Promise<Map<string, number>>}
+ * Uploads still in progress from before a restart hold space too.
+ * Read once; after that the in-memory map is kept up to date.
  */
-async function reservationsFromDisk() {
-  const found = new Map();
+async function seedReservationsFromDisk() {
+  if (seededFromDisk) return;
+  seededFromDisk = true;
   const metadataDir = path.join(config.uploadDir, METADATA_DIR_NAME);
   let names;
   try {
     names = await fs.readdir(metadataDir);
   } catch (err) {
-    if (err.code === 'ENOENT') return found;
+    if (err.code === 'ENOENT') return;
     throw err;
   }
 
   for (const name of names) {
     if (!name.endsWith('.meta')) continue;
     try {
-      const raw = await fs.readFile(path.join(metadataDir, name), 'utf8');
-      const meta = JSON.parse(raw);
+      const meta = JSON.parse(await fs.readFile(path.join(metadataDir, name), 'utf8'));
       const id = typeof meta.uploadId === 'string' ? meta.uploadId : name.slice(0, -'.meta'.length);
       const size = Number(meta.fileSize);
-      if (!id || !Number.isFinite(size) || size < 0) continue;
-      found.set(id, size);
+      if (id && Number.isFinite(size) && size >= 0 && !reservations.has(id)) {
+        reservations.set(id, size);
+      }
     } catch (err) {
       logger.warn(`Skipping unreadable upload metadata ${name}: ${err.message}`);
     }
   }
-  return found;
 }
 
-/**
- * @param {Map<string, number>} diskMap
- * @returns {number}
- */
-function reservedTotal(diskMap) {
-  const ids = new Set([...reservations.keys(), ...diskMap.keys()]);
+function reservedTotal() {
   let total = 0;
-  for (const id of ids) {
-    total += reservations.has(id) ? reservations.get(id) : diskMap.get(id);
-  }
+  for (const size of reservations.values()) total += size;
   return total;
 }
 
+async function refreshUsedIfStale() {
+  if (!usedAt || Date.now() - usedAt > USED_TTL_MS) {
+    usedBytes = await measureTreeBytes(config.uploadDir);
+    usedAt = Date.now();
+  }
+}
+
 /**
- * Reserve `bytes` for an upload that has not been written yet.
+ * Reserve space for an upload that has not been written yet.
  * @param {string} uploadId
  * @param {number} bytes
- * @returns {Promise<{ok: boolean, usedBytes?: number, reservedBytes?: number, limit?: number}>}
+ * @returns {Promise<{ok: boolean, usedBytes?: number, reservedBytes?: number, limit?: number, freeBytes?: number}>}
  */
 async function reserveStorage(uploadId, bytes) {
   return withQuotaLock(async () => {
     const size = Math.max(0, Number(bytes) || 0);
     if (!quotaEnabled()) {
-      reservations.set(uploadId, size);
       return { ok: true };
     }
 
-    if (!usedAt || Date.now() - usedAt > USED_TTL_MS) {
-      usedBytes = await measureTreeBytes(config.uploadDir);
-      usedAt = Date.now();
-    }
+    await seedReservationsFromDisk();
+    await refreshUsedIfStale();
 
-    const disk = await reservationsFromDisk();
-    const reservedBytes = reservedTotal(disk);
-    if (usedBytes + reservedBytes + size > config.maxStorageBytes) {
-      return {
-        ok: false,
-        usedBytes,
-        reservedBytes,
-        limit: config.maxStorageBytes,
-      };
+    const reservedBytes = reservedTotal();
+    const freeBytes = Math.max(0, config.maxStorageBytes - usedBytes - reservedBytes);
+    const status = { usedBytes, reservedBytes, limit: config.maxStorageBytes, freeBytes };
+    if (size > freeBytes) {
+      return { ok: false, ...status };
     }
 
     reservations.set(uploadId, size);
-    return { ok: true, usedBytes, reservedBytes, limit: config.maxStorageBytes };
+    return { ok: true, ...status, freeBytes: freeBytes - size };
   });
 }
 
@@ -174,7 +170,7 @@ async function releaseReservation(uploadId) {
 }
 
 /**
- * Recompute the cached total after a delete. The next init must see the free space.
+ * Recompute the cached total after a delete so the next init sees the space.
  */
 async function noteDeleted() {
   return withQuotaLock(async () => {
@@ -184,10 +180,30 @@ async function noteDeleted() {
   });
 }
 
+/**
+ * Current numbers for the UI. Null when there is no quota.
+ * @returns {Promise<{limit: number, used: number, reserved: number, free: number}|null>}
+ */
+async function getStorageStatus() {
+  if (!quotaEnabled()) return null;
+  return withQuotaLock(async () => {
+    await seedReservationsFromDisk();
+    await refreshUsedIfStale();
+    const reserved = reservedTotal();
+    return {
+      limit: config.maxStorageBytes,
+      used: usedBytes,
+      reserved,
+      free: Math.max(0, config.maxStorageBytes - usedBytes - reserved),
+    };
+  });
+}
+
 module.exports = {
   reserveStorage,
   commitStored,
   releaseReservation,
   noteDeleted,
   measureTreeBytes,
+  getStorageStatus,
 };
