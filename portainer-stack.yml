@@ -1,32 +1,54 @@
 # DumbDrop — Portainer stack (image-based, copy/paste ready)
 #
 # 1. Publish your image first (see README "Publish your Docker image")
-# 2. Replace YOUR_DOCKERHUB_USER below with your Docker Hub username
+# 2. Replace YOUR_DOCKERHUB_USER below. Pin a version; do not deploy :latest.
 # 3. Portainer → Stacks → Web editor → paste this file
-# 4. Set BASE_URL to your public URL
-# 5. Deploy / Update stack
+# 4. Set DUMBDROP_PIN (4-10 digits) and TRUSTED_PROXY_IPS (the proxy that dials this container)
+# 5. Set BASE_URL to the public https URL
+# 6. Deploy / Update stack
+#
+# The published port is loopback-only so the host reverse proxy is the front door.
+# If the proxy is another container, remove `ports` and put both on one Docker network.
+# Publishing on every interface ("3000:3000") skips that proxy. Do that only on purpose.
 
 services:
   dumbdrop:
-    image: YOUR_DOCKERHUB_USER/dumbdrop:latest
+    image: YOUR_DOCKERHUB_USER/dumbdrop:1.5.0
     container_name: dumbdrop
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - dumbdrop_uploads:/app/uploads
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    pids_limit: 256
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+      - /home/node:mode=0755,size=16m
     environment:
       UPLOAD_DIR: /app/uploads
       NODE_ENV: production
       PORT: 3000
       BASE_URL: https://dumbdrop.example.com
       DUMBDROP_TITLE: DumbDrop Plus
-      DUMBDROP_PIN: ""
+      # Required. An empty PIN disables list, download, rename, and delete.
+      DUMBDROP_PIN: ${DUMBDROP_PIN:?Set DUMBDROP_PIN to a 4-10 digit PIN}
+      # Optional: only this PIN can list, download, rename, delete and share.
+      # DUMBDROP_ADMIN_PIN: ${DUMBDROP_ADMIN_PIN}
       MAX_FILE_SIZE: 1024
       AUTO_UPLOAD: "true"
-      SHOW_FILE_LIST: "true"
-      TRUST_PROXY: "false"
-      # Upload tuning: parallel streams per browser (1-6), chunk size in MB (0 = adaptive)
+      SHOW_FILE_LIST: "false"
+      # UPLOAD_ONLY: "true"
+      # MAX_STORAGE_MB: 10240
+      # Trust the reverse proxy or every visitor shares one IP for lockouts and rate limits.
+      # Set TRUSTED_PROXY_IPS to that proxy's address (docker bridge gateway, or the proxy container).
+      TRUST_PROXY: "true"
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:?Set TRUSTED_PROXY_IPS to your reverse proxy IP}
       UPLOAD_CONCURRENCY: 4
       UPLOAD_CHUNK_MB: 0
     healthcheck:

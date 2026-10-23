@@ -142,6 +142,44 @@ describe('Path Validation Edge Cases', () => {
     assert.strictEqual(isPathWithinUploadDir(filePath, testUploadDir, false), true);
   });
   
+  test('should reject a symlink that points outside the upload directory', () => {
+    const outside = path.join(os.tmpdir(), `dumbdrop-symlink-out-${Date.now()}.txt`);
+    const linkPath = path.join(testUploadDir, 'escape.txt');
+    fs.writeFileSync(outside, 'secret');
+    fs.symlinkSync(outside, linkPath);
+
+    assert.strictEqual(isPathWithinUploadDir(linkPath, testUploadDir, false), false);
+    assert.strictEqual(isPathWithinUploadDir(linkPath, testUploadDir, true), false);
+
+    fs.unlinkSync(linkPath);
+    fs.unlinkSync(outside);
+  });
+
+  test('should reject a new file under a symlinked directory that points outside', () => {
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dumbdrop-symlink-dir-'));
+    const linkDir = path.join(testUploadDir, 'escape-dir');
+    fs.symlinkSync(outsideDir, linkDir);
+    const filePath = path.join(linkDir, 'new.txt');
+
+    assert.strictEqual(isPathWithinUploadDir(filePath, testUploadDir, false), false);
+
+    fs.unlinkSync(linkDir);
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+  });
+
+  test('should allow a symlink that stays inside the upload directory', () => {
+    const target = path.join(testUploadDir, 'inside-target.txt');
+    const linkPath = path.join(testUploadDir, 'inside-link.txt');
+    fs.writeFileSync(target, 'ok');
+    fs.symlinkSync(target, linkPath);
+
+    assert.strictEqual(isPathWithinUploadDir(linkPath, testUploadDir, false), true);
+    assert.strictEqual(isPathWithinUploadDir(linkPath, testUploadDir, true), true);
+
+    fs.unlinkSync(linkPath);
+    fs.unlinkSync(target);
+  });
+
   test('should reject non-existent upload directory', () => {
     const fakeUploadDir = path.join(os.tmpdir(), 'non-existent-dir-' + Date.now());
     const filePath = path.join(fakeUploadDir, 'file.txt');

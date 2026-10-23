@@ -134,21 +134,51 @@ document.getElementById('renameForm')?.addEventListener('submit', (e) => {
 });
 
 const dropHint = document.getElementById('dropHint');
-if (dropHint) {
+let storageText = '';
+
+function renderDropHint() {
+  if (!dropHint) return;
   const limit = Number(window.APP_CONFIG.maxFileSize);
   const parts = [];
   if (Number.isFinite(limit) && limit > 0) parts.push(`Up to ${formatFileSize(limit)} per file`);
+  if (storageText) parts.push(storageText);
+  if (window.APP_CONFIG.uploadOnly) parts.push('Upload only');
   if (window.APP_CONFIG.autoUpload) parts.push('Uploads start immediately');
   dropHint.textContent = parts.join(' · ');
 }
 
+/** Show "X free of Y" when the server has a storage quota. */
+async function refreshStorage() {
+  if (!(Number(window.APP_CONFIG.maxStorageBytes) > 0)) return;
+  try {
+    const response = await fetch(apiUrl('/api/upload/storage'), { credentials: 'include' });
+    if (!response.ok) return;
+    const { quota } = await response.json();
+    if (quota) storageText = `${formatFileSize(quota.free)} free of ${formatFileSize(quota.limit)}`;
+  } catch {
+    // The hint is a convenience; uploads still report quota errors themselves.
+  }
+  renderDropHint();
+}
+
+renderDropHint();
+refreshStorage();
+window.addEventListener('dumbdrop:uploads-finished', refreshStorage);
+window.addEventListener('dumbdrop:files-changed', refreshStorage);
+
 const logoutBtn = document.getElementById('logoutBtn');
-if (window.APP_CONFIG.pinEnabled && logoutBtn) {
+if (window.APP_CONFIG.signedIn && logoutBtn) {
   logoutBtn.hidden = false;
   logoutBtn.addEventListener('click', async () => {
-    await fetch(apiUrl('/api/auth/logout'), { method: 'POST' });
+    await fetch(apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include' });
     window.location.href = apiUrl('/login.html');
   });
+}
+
+const adminBtn = document.getElementById('adminBtn');
+if (window.APP_CONFIG.adminSignIn && adminBtn) {
+  adminBtn.hidden = false;
+  adminBtn.href = apiUrl('/login.html');
 }
 
 function preventDefaults(e) {

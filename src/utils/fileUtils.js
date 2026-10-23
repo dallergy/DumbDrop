@@ -47,7 +47,7 @@ async function calculateDirectorySize(directoryPath) {
   let totalSize = 0;
   try {
     const files = await fs.promises.readdir(directoryPath);
-    const fileSizePromises = files.map(async file => {
+    const fileSizePromises = files.map(async (file) => {
       const filePath = path.join(directoryPath, file);
       const stats = await fs.promises.stat(filePath);
       if (stats.isFile()) {
@@ -58,7 +58,7 @@ async function calculateDirectorySize(directoryPath) {
       }
       return 0;
     });
-    
+
     const sizes = await Promise.all(fileSizePromises);
     totalSize = sizes.reduce((acc, size) => acc + size, 0);
   } catch (err) {
@@ -114,7 +114,7 @@ async function getUniqueFilePath(filePath) {
       }
     }
   }
-  
+
   // Log using actual path
   logger.info(`Using unique path: ${finalPath}`);
   return { path: finalPath, handle: fileHandle };
@@ -195,11 +195,30 @@ function sanitizeFilenameSafe(fileName) {
 
   // Step 5: Check for Windows reserved names
   const reservedNames = [
-    'CON', 'PRN', 'AUX', 'NUL',
-    'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
-    'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+    'CON',
+    'PRN',
+    'AUX',
+    'NUL',
+    'COM1',
+    'COM2',
+    'COM3',
+    'COM4',
+    'COM5',
+    'COM6',
+    'COM7',
+    'COM8',
+    'COM9',
+    'LPT1',
+    'LPT2',
+    'LPT3',
+    'LPT4',
+    'LPT5',
+    'LPT6',
+    'LPT7',
+    'LPT8',
+    'LPT9',
   ];
-  
+
   if (reservedNames.includes(baseName.toUpperCase())) {
     baseName = baseName + '_file';
   }
@@ -216,7 +235,7 @@ function sanitizeFilenameSafe(fileName) {
     cleanExt = cleanExt
       .replace(/[^a-zA-Z0-9.]/g, '') // Only allow alphanumeric and dots in extension
       .toLowerCase(); // Normalize to lowercase
-    
+
     // Ensure extension starts with a dot
     if (cleanExt && !cleanExt.startsWith('.')) {
       cleanExt = '.' + cleanExt;
@@ -224,7 +243,7 @@ function sanitizeFilenameSafe(fileName) {
   }
 
   const finalName = baseName + cleanExt;
-  
+
   // Final safety check - if somehow we end up with an empty name
   if (!finalName || finalName === cleanExt) {
     return 'file' + (cleanExt || '.txt');
@@ -247,8 +266,8 @@ function sanitizePathPreserveDirsSafe(filePath) {
   // Split on forward slashes, sanitize each part, and rejoin
   return filePath
     .split('/')
-    .filter(part => part.length > 0 && part !== '.' && part !== '..') // Remove empty parts and path navigation tokens
-    .map(part => sanitizeFilenameSafe(part))
+    .filter((part) => part.length > 0 && part !== '.' && part !== '..') // Remove empty parts and path navigation tokens
+    .map((part) => sanitizeFilenameSafe(part))
     .join('/');
 }
 
@@ -269,7 +288,7 @@ function sanitizePathPreserveDirs(filePath) {
   // Split on forward slashes, sanitize each part, and rejoin
   return filePath
     .split('/')
-    .map(part => sanitizeFilename(part))
+    .map((part) => sanitizeFilename(part))
     .join('/');
 }
 
@@ -284,86 +303,150 @@ function isValidBatchId(batchId) {
 }
 
 /**
- * Check if a file path is within the upload directory
- * Works with both existing and non-existing files, and handles Docker bind mounts correctly
- * This function does NOT require the file to exist, making it suitable for upload validation
+ * True when candidate is the upload root or a path beneath it.
+ * @param {string} root - Real upload directory
+ * @param {string} candidate - Path to test
+ * @returns {boolean}
+ */
+function isInsideRoot(root, candidate) {
+  const relativePath = path.relative(path.normalize(root), path.normalize(candidate));
+  if (relativePath === '') return true;
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) return false;
+  if (process.platform === 'win32') {
+    const fileDrive = path.normalize(candidate).split(':')[0];
+    const uploadDrive = path.normalize(root).split(':')[0];
+    if (fileDrive !== uploadDrive) return false;
+  }
+  return true;
+}
+
+/**
+ * Walk up to the nearest existing ancestor and follow any symlink.
+ * Lexical checks miss a link inside the upload dir that points outside it.
+ * Returns true when a symlink escapes the real upload directory.
+ * @param {string} resolvedFilePath
+ * @param {string} realUploadDir
+ * @param {string} uploadDir
+ * @returns {boolean}
+ */
+function hasEscapingSymlink(resolvedFilePath, realUploadDir, uploadDir) {
+  const uploadRoot = path.resolve(uploadDir);
+  let current = path.resolve(resolvedFilePath);
+  const filesystemRoot = path.parse(current).root;
+
+  while (current && current !== filesystemRoot) {
+    let stat;
+    try {
+      stat = fs.lstatSync(current);
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        const parent = path.dirname(current);
+        if (parent === current) return false;
+        current = parent;
+        continue;
+      }
+      logger.error(`Failed to stat path while checking symlinks: ${err.message}`);
+      return true;
+    }
+
+    const atUploadRoot =
+      path.normalize(current) === path.normalize(uploadRoot) ||
+      path.normalize(current) === path.normalize(realUploadDir);
+
+    if (stat.isSymbolicLink()) {
+      let realTarget;
+      try {
+        realTarget = fs.realpathSync(current);
+      } catch (err) {
+        logger.warn(`Rejecting unresolved symlink at ${current}: ${err.message}`);
+        return true;
+      }
+      const suffix = path.relative(current, path.resolve(resolvedFilePath));
+      const combined = suffix ? path.resolve(realTarget, suffix) : realTarget;
+      return !isInsideRoot(realUploadDir, combined);
+    }
+
+    // Stop at the upload root so a symlink above it (the dir itself is real)
+    // is not treated as an escape.
+    if (atUploadRoot) return false;
+
+    const parent = path.dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+  return false;
+}
+
+/**
+ * Check if a file path is within the upload directory.
+ * Works with both existing and non-existing files, and handles Docker bind mounts.
+ * requireExists=false is for paths that are not created yet (uploads, rename dest).
+ * It still follows symlinks on existing ancestors so a link cannot point outside.
+ * requireExists=true resolves the final path with realpath and rejects missing files.
  * @param {string} filePath - The file path to check (may not exist yet)
  * @param {string} uploadDir - The upload directory (must exist)
- * @param {boolean} requireExists - If true, file must exist (default: false for compatibility with uploads)
+ * @param {boolean} requireExists - If true, file must exist and symlinks are resolved
  * @returns {boolean} True if the path is within the upload directory
  */
 function isPathWithinUploadDir(filePath, uploadDir, requireExists = false) {
   try {
-    // Resolve the upload directory to its real path (should always exist)
-    // This handles symlinks in the upload directory path
     let realUploadDir;
     try {
-      realUploadDir = fs.realpathSync(uploadDir);
+      realUploadDir = path.normalize(fs.realpathSync(uploadDir));
     } catch {
       logger.error(`Upload directory does not exist or is inaccessible: ${uploadDir}`);
       return false;
     }
-    
-    // For the file path, we need different handling based on whether it exists
-    let resolvedFilePath;
+
     if (requireExists) {
-      // When requireExists is true, the file must exist
-      if (!fs.existsSync(filePath)) {
-        // File must exist but doesn't - return false immediately
-        return false;
-      }
-      // File exists, resolve symlinks for security
+      if (!fs.existsSync(filePath)) return false;
+      let resolvedFilePath;
       try {
-        resolvedFilePath = fs.realpathSync(filePath);
+        resolvedFilePath = path.normalize(fs.realpathSync(filePath));
       } catch {
         logger.error(`Failed to resolve existing file path: ${filePath}`);
         return false;
       }
-    } else {
-      // For non-existing files (like during upload), use path.resolve
-      // This normalizes the path without requiring it to exist
-      resolvedFilePath = path.resolve(filePath);
-      
-      // Normalize both paths to use consistent separators
-      resolvedFilePath = path.normalize(resolvedFilePath);
+      return isInsideRoot(realUploadDir, resolvedFilePath);
     }
-    
-    // Normalize the upload directory path as well
-    realUploadDir = path.normalize(realUploadDir);
-    
-    // Use path.relative() to check if file path is relative to upload dir
-    // This is more reliable than startsWith() checks, especially with bind mounts
-    const relativePath = path.relative(realUploadDir, resolvedFilePath);
-    
-    // If relative path is empty, the paths are the same (upload dir itself) - allow it
-    if (relativePath === '') {
-      return true;
-    }
-    
-    // If relative path starts with '..', it's outside the upload directory
-    // This catches path traversal attempts
-    if (relativePath.startsWith('..')) {
-      return false;
-    }
-    
-    // Additional check: On Windows, ensure we're on the same drive
-    if (process.platform === 'win32') {
-      const fileDrive = resolvedFilePath.split(':')[0];
-      const uploadDrive = realUploadDir.split(':')[0];
-      if (fileDrive !== uploadDrive) {
-        return false;
-      }
-    }
-    
-    // If we get here, the path is within the upload directory
+
+    const resolvedFilePath = path.normalize(path.resolve(filePath));
+    if (!isInsideRoot(realUploadDir, resolvedFilePath)) return false;
+    if (hasEscapingSymlink(resolvedFilePath, realUploadDir, uploadDir)) return false;
     return true;
   } catch (err) {
-    logger.error(`Path validation error: ${err.message}`, err);
+    logger.error(`Path validation error: ${err.message}`);
     return false;
   }
 }
 
+/**
+ * Check a client-supplied path relative to the upload directory.
+ *
+ * Uploads strip leading dots from every name, so a segment that starts with
+ * "." is never user content: it is "..", ".", or app data such as .metadata
+ * (share grants and the session key). Management and share routes must not
+ * act on those, or on the upload root itself.
+ *
+ * @param {unknown} input - Relative path from a URL or request body
+ * @returns {{ok: true, path: string} | {ok: false, reason: 'traversal'|'hidden'|'empty'}}
+ */
+function checkUserPath(input) {
+  if (typeof input !== 'string') return { ok: false, reason: 'empty' };
+  const parts = input
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((part) => part.length > 0);
+  if (parts.includes('..')) return { ok: false, reason: 'traversal' };
+  if (parts.length === 0) return { ok: false, reason: 'empty' };
+  if (parts.some((part) => part.startsWith('.') || part.includes('\0'))) {
+    return { ok: false, reason: 'hidden' };
+  }
+  return { ok: true, path: parts.join('/') };
+}
+
 module.exports = {
+  checkUserPath,
   formatFileSize,
   calculateDirectorySize,
   ensureDirectoryExists,
@@ -374,5 +457,5 @@ module.exports = {
   sanitizeFilenameSafe,
   sanitizePathPreserveDirsSafe,
   isValidBatchId,
-  isPathWithinUploadDir
-}; 
+  isPathWithinUploadDir,
+};

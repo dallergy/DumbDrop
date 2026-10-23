@@ -43,11 +43,13 @@ No auth (unless you want it now!), no storage, no nothing. Just a simple file up
 ### Option 1: Docker (For Dummies)
 
 ```bash
-# Pull and run with one command
-docker run -p 3000:3000 -v ./uploads:/app/uploads dumbwareio/dumbdrop:latest
+# Pull and run with one command (pick your own 4-10 digit PIN)
+docker run -p 127.0.0.1:3000:3000 -e DUMBDROP_PIN=246810 -v ./uploads:/app/uploads dumbwareio/dumbdrop:latest
 ```
 
-1. Go to http://localhost:3000
+The image runs in production mode, which refuses to start without a PIN.
+
+1. Go to http://localhost:3000 and enter your PIN
 2. Upload a File - It'll show up in ./uploads
 3. Celebrate on how dumb easy this was
 
@@ -58,25 +60,27 @@ Create a `docker-compose.yml` file:
 ```yaml
 services:
   dumbdrop:
-    image: dumbwareio/dumbdrop:latest
+    image: YOUR_DOCKERHUB_USER/dumbdrop:1.5.0
     ports:
-      - 3000:3000
+      # Loopback only. A reverse proxy on the host should be the public entry.
+      - 127.0.0.1:3000:3000
     volumes:
       # Where your uploaded files will land
       - ./uploads:/app/uploads
     environment:
       # Explicitly set upload directory inside the container
       UPLOAD_DIR: /app/uploads
+      NODE_ENV: production
       # The title shown in the web interface
       DUMBDROP_TITLE: DumbDrop
       # Maximum file size in MB
       MAX_FILE_SIZE: 1024
-      # Optional PIN protection (leave empty to disable)
-      DUMBDROP_PIN: 123456
+      # Required in production (4-10 digits). Do not ship an empty PIN.
+      DUMBDROP_PIN: ${DUMBDROP_PIN:?Set DUMBDROP_PIN to a 4-10 digit PIN}
       # Upload without clicking button
       AUTO_UPLOAD: false
-      # Show file list with share/download/delete actions
-      SHOW_FILE_LIST: true
+      # File library is off unless you want list/download/rename/delete/shares
+      SHOW_FILE_LIST: false
       # The base URL for the application
       # You must update this to the url you use to access your site
       BASE_URL: http://localhost:3000
@@ -207,7 +211,11 @@ For local development setup, troubleshooting, and advanced usage, see the dedica
 | PORT                                                     | Server port                                                                                                                           | 3000                                                          | No       |
 | BASE_URL                                                 | Base URL for the application                                                                                                          | http://localhost:PORT                                         | No       |
 | MAX_FILE_SIZE                                            | Maximum file size in MB                                                                                                               | 1024                                                          | No       |
-| DUMBDROP_PIN                                             | PIN protection (4-10 digits)                                                                                                          | None                                                          | No       |
+| DUMBDROP_PIN                                             | PIN protection (4-10 digits). Required when `NODE_ENV=production` unless `ALLOW_INSECURE_NO_PIN=true`                                | None                                                          | Yes, in production |
+| DUMBDROP_ADMIN_PIN                                       | Optional second PIN (4-10 digits, different from `DUMBDROP_PIN`). When set, only it unlocks list, download, rename, delete and shares; `DUMBDROP_PIN` then only uploads | None                                                          | No       |
+| ALLOW_INSECURE_NO_PIN                                    | Allow production to boot with no `DUMBDROP_PIN` (anyone can upload; with `DUMBDROP_ADMIN_PIN` set, management still needs it)        | false                                                         | No       |
+| UPLOAD_ONLY                                              | Drop-box mode: 404 for list, download, rename, delete, and shares. Uploads, auth, and health stay available. Ignored when `DUMBDROP_ADMIN_PIN` is set (the admin can still manage) | false                                                         | No       |
+| MAX_STORAGE_MB                                           | Total quota in MB for uploaded files, including uploads in progress. `0` or unset is unlimited                                       | unlimited                                                     | No       |
 | DUMBDROP_TITLE                                           | Site title displayed in header                                                                                                        | DumbDrop                                                      | No       |
 | APPRISE_URL                                              | Apprise URL for notifications                                                                                                         | None                                                          | No       |
 | APPRISE_MESSAGE                                          | Notification message template                                                                                                         | New file uploaded {filename} ({size}), Storage used {storage} | No       |
@@ -219,8 +227,8 @@ For local development setup, troubleshooting, and advanced usage, see the dedica
 | ALLOWED_ORIGINS                                          | You can restrict CORS to your BASE_URL or a comma-separated list of specified origins, which will automatically include your base_url | '\*'                                                          | No       |
 | UPLOAD_DIR                                               | Directory for uploads (Docker/production; should be `/app/uploads` in container)                                                      | None (see LOCAL_UPLOAD_DIR fallback)                          | No       |
 | LOCAL_UPLOAD_DIR                                         | Directory for uploads (local dev, fallback: './local_uploads')                                                                        | ./local_uploads                                               | No       |
-| TRUST_PROXY                                              | Trust proxy headers (X-Forwarded-For) - only enable if behind a reverse proxy                                                         | false                                                         | No       |
-| TRUSTED_PROXY_IPS                                        | Comma-separated list of trusted proxy IPs (optional, requires TRUST_PROXY=true)                                                       | None                                                          | No       |
+| TRUST_PROXY                                              | Trust proxy headers (X-Forwarded-For). Required behind a reverse proxy so each client has its own lockout and rate limit             | false                                                         | No       |
+| TRUSTED_PROXY_IPS                                        | Comma-separated trusted proxy IPs. Set this together with `TRUST_PROXY=true` so clients cannot spoof `X-Forwarded-For`                 | None                                                          | No       |
 | UPLOAD_CONCURRENCY                                       | Default number of parallel upload streams the browser uses (1–6; users can override in the UI)                                       | 4                                                             | No       |
 | UPLOAD_CHUNK_MB                                          | Fixed upload chunk size in MB (0 = adaptive 2–32MB based on measured speed)                                                           | 0                                                             | No       |
 | UPLOAD_INIT_RATE_LIMIT                                   | Max new upload sessions per minute per IP (raise for folders with thousands of files)                                                 | 600                                                           | No       |
@@ -371,6 +379,29 @@ When enabled, this feature provides:
 
 The file list automatically refreshes after successful uploads to keep the display current.
 
+### Who can do what
+
+| Setup | Uploading | Library, downloads, rename, delete, shares |
+| --- | --- | --- |
+| `DUMBDROP_PIN` only | PIN holders | PIN holders |
+| `DUMBDROP_PIN` + `UPLOAD_ONLY=true` | PIN holders | Nobody (routes return 404) |
+| `DUMBDROP_PIN` + `DUMBDROP_ADMIN_PIN` | PIN or admin PIN holders | Admin PIN holders only |
+| `DUMBDROP_ADMIN_PIN` + `ALLOW_INSECURE_NO_PIN=true` | Anyone (public drop box) | Admin PIN holders only |
+
+Both PINs are entered on the same login page; the server works out which one it was. When an admin PIN exists, the upload page shows an **Admin** button that leads to the login page.
+
+### Upload-only mode
+
+Set `UPLOAD_ONLY=true` when the instance is a drop box and nobody needs to manage files through the web. `/api/files/*`, `/api/shares/*`, and `/share/:token` return 404, and the file library is hidden even if `SHOW_FILE_LIST=true`. `/api/upload/*`, `/api/auth/*`, `/health`, and the upload page keep working. To keep a way in for yourself, set `DUMBDROP_ADMIN_PIN` instead.
+
+### Storage quota
+
+Set `MAX_STORAGE_MB` to cap the space uploaded files can use. `POST /api/upload/init` returns **507** with a message like *"Not enough storage space: 120 MB left, this file needs 300 MB"* when stored files plus uploads in progress plus the new file would pass the cap. Space held by an upload in progress is released on cancel, completion, or stale-session cleanup. The upload page shows the free space, and `GET /api/upload/storage` returns `{ quota: { limit, used, reserved, free } }`. App data under `.metadata` (upload state, share list, cached share ZIPs) is not counted. `0` or unset means no cap.
+
+### Scripts and the `X-Pin` header
+
+Scripts can skip the login page by sending the PIN in an `X-Pin` header (for example `curl -H "X-Pin: 123456" https://drop.example.com/api/files`). Wrong PINs sent this way count toward the same lockout as the login page (5 tries, then 15 minutes), and a right one returns a session cookie the script can reuse.
+
 </details>
 
 <details>
@@ -409,23 +440,29 @@ Both {size} and {storage} use the same formatting rules based on APPRISE_SIZE_UN
 
 ### Features
 
-- Variable-length PIN support (4-10 digits)
+- Variable-length PIN support (4-10 digits), plus an optional separate admin PIN
+- Signed session cookies: after login the browser holds an expiring, HMAC-signed token, never the PIN. Changing a PIN signs everyone out; logging out ends the session on the server
+- One lockout for every PIN entry point (login page, `X-Pin` header, share PIN): 5 wrong PINs lock the IP for 15 minutes. Signed-in sessions keep working during someone else's lockout, and successful logins are never throttled
 - Constant-time PIN comparison
-- Input sanitization
-- Rate limiting with IP-based tracking
-- Protection against IP spoofing attacks
+- Public share links and share management are separate routers; management is only mounted behind the PIN
+- Share links to protected items use random, revocable grants
+- File routes refuse the upload root and app data (`.metadata`), and never follow symlinks out of the upload directory; the library, share pages and share ZIPs leave symlinks out
+- Rate limiting with IP-based tracking and protection against `X-Forwarded-For` spoofing
 - Configurable proxy trust for reverse proxy deployments
-- File extension filtering
-- No client-side PIN storage
-- Secure file handling
+- File extension filtering and filename sanitization
 
 ### Security Best Practices
 
-1. **PIN Protection**: Always set a strong PIN when deploying publicly
-2. **Proxy Trust**: Only enable `TRUST_PROXY` when behind a verified reverse proxy
-3. **HTTPS**: Use HTTPS in production (handled by your reverse proxy)
-4. **File Extensions**: Restrict allowed file types using `ALLOWED_EXTENSIONS` if possible
-5. **Regular Updates**: Keep DumbDrop and its dependencies up to date
+1. **PIN Protection**: Production will not start without `DUMBDROP_PIN` unless you set `ALLOW_INSECURE_NO_PIN=true`
+2. **Proxy Trust**: Behind a reverse proxy set `TRUST_PROXY=true` and `TRUSTED_PROXY_IPS` to that proxy. Leaving trust off makes every client share the proxy IP, so one lockout blocks everyone
+3. **HTTPS**: Use HTTPS in production (handled by your reverse proxy). Share and PIN cookies are marked `Secure` when `BASE_URL` is `https` in production
+4. **Drop box**: Set `DUMBDROP_ADMIN_PIN` (or `UPLOAD_ONLY=true`) if holders of the upload PIN should not list, download, rename, delete, or share
+5. **Quota**: Set `MAX_STORAGE_MB` so a leaked PIN cannot fill the disk
+6. **File Extensions**: Restrict allowed file types using `ALLOWED_EXTENSIONS` if possible
+7. **Bind address**: Publish `127.0.0.1:3000:3000`, or no host port when the proxy shares a Docker network
+8. **Regular Updates**: Keep DumbDrop and its dependencies up to date
+
+See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 
 ## Technical Details
 

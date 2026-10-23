@@ -10,7 +10,13 @@ const path = require('path');
 const fs = require('fs').promises;
 const { config } = require('../config');
 const logger = require('../utils/logger');
-const { formatFileSize, sanitizeFilenameSafe, isPathWithinUploadDir } = require('../utils/fileUtils');
+const {
+  formatFileSize,
+  sanitizeFilenameSafe,
+  isPathWithinUploadDir,
+  checkUserPath,
+} = require('../utils/fileUtils');
+const { noteDeleted } = require('../utils/storageQuota');
 
 /**
  * Safely encode filename for Content-Disposition header
@@ -21,24 +27,24 @@ const { formatFileSize, sanitizeFilenameSafe, isPathWithinUploadDir } = require(
 function createSafeContentDisposition(filename) {
   // Remove any path separators to ensure we only get the filename
   const basename = path.basename(filename);
-  
+
   // Remove or replace characters that could cause issues
   // Remove control characters (0x00-0x1F, 0x7F) and quotes
   // eslint-disable-next-line no-control-regex
   const sanitized = basename.replace(/[\u0000-\u001F\u007F"\\]/g, '_');
-  
+
   // For ASCII-only filenames, use simple format
   if (/^[\u0020-\u007E]*$/.test(sanitized)) {
     // Escape any remaining quotes and backslashes
     const escaped = sanitized.replace(/["\\]/g, '\\$&');
     return `attachment; filename="${escaped}"`;
   }
-  
+
   // For filenames with non-ASCII characters, use RFC 5987 encoding
   // This provides better international character support
   const encoded = encodeURIComponent(sanitized);
   const asciiSafe = sanitized.replace(/[^\u0020-\u007E]/g, '_');
-  
+
   return `attachment; filename="${asciiSafe}"; filename*=UTF-8''${encoded}`;
 }
 
@@ -51,19 +57,59 @@ function splatPath(req) {
 }
 
 /**
+ * Resolve the request's path to an existing item a user may act on.
+ * Refuses traversal (403), hidden or internal paths such as .metadata and the
+ * upload root (404), missing items (404), and symlinks that point outside
+ * the upload directory (403). Sends the response itself on refusal.
+ * @returns {Promise<string|null>} absolute path, or null when a response was sent
+ */
+async function resolveExistingUserPath(req, res) {
+  const displayPath = splatPath(req);
+  const checked = checkUserPath(displayPath);
+  if (!checked.ok) {
+    if (checked.reason === 'traversal') {
+      logger.warn(`Blocked path traversal: ${displayPath}`);
+      res.status(403).json({ error: 'Access denied' });
+    } else {
+      res.status(404).json({ error: 'File not found' });
+    }
+    return null;
+  }
+
+  const absolutePath = path.join(config.uploadDir, checked.path);
+  if (!isPathWithinUploadDir(absolutePath, config.uploadDir, false)) {
+    logger.warn(`Blocked path outside upload directory: ${displayPath}`);
+    res.status(403).json({ error: 'Access denied' });
+    return null;
+  }
+
+  try {
+    await fs.lstat(absolutePath);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      res.status(404).json({ error: 'File not found' });
+      return null;
+    }
+    throw err;
+  }
+
+  // requireExists follows the real path, so a symlink to outside is denied.
+  if (!isPathWithinUploadDir(absolutePath, config.uploadDir, true)) {
+    logger.warn(`Blocked symlink escape: ${displayPath}`);
+    res.status(403).json({ error: 'Access denied' });
+    return null;
+  }
+  return absolutePath;
+}
+
+/**
  * Get file information
  */
 router.get('/info/*splat', async (req, res) => {
-  const filePath = path.join(config.uploadDir, splatPath(req));
-  
   try {
-    // Ensure the path is within the upload directory (security check)
-    // Use requireExists=true since we're getting info on an existing file
-    if (!isPathWithinUploadDir(filePath, config.uploadDir, false)) {
-      logger.warn(`Attempted path traversal attack: ${splatPath(req)}`);
-      return res.status(403).json({ error: 'Access denied' });
-    }
-    
+    const filePath = await resolveExistingUserPath(req, res);
+    if (!filePath) return;
+
     const stats = await fs.stat(filePath);
     const fileInfo = {
       filename: splatPath(req),
@@ -71,7 +117,7 @@ router.get('/info/*splat', async (req, res) => {
       formattedSize: formatFileSize(stats.size),
       uploadDate: stats.mtime,
       mimetype: path.extname(splatPath(req)).slice(1),
-      type: stats.isDirectory() ? 'directory' : 'file'
+      type: stats.isDirectory() ? 'directory' : 'file',
     };
 
     res.json(fileInfo);
@@ -85,29 +131,24 @@ router.get('/info/*splat', async (req, res) => {
  * Download file
  */
 router.get('/download/*splat', async (req, res) => {
-  // Get the file path from the wildcard parameter
-  const filePath = path.join(config.uploadDir, splatPath(req));
   const fileName = path.basename(splatPath(req));
-  
+
   try {
-    // Ensure the file is within the upload directory (security check)
-    // This must be done BEFORE any filesystem operations to prevent path traversal
-    // Use requireExists=true since we're downloading an existing file
-    if (!isPathWithinUploadDir(filePath, config.uploadDir, false)) {
-      logger.warn(`Attempted path traversal attack: ${splatPath(req)}`);
-      return res.status(403).json({ error: 'Access denied' });
+    const filePath = await resolveExistingUserPath(req, res);
+    if (!filePath) return;
+    const fileStats = await fs.stat(filePath);
+    if (!fileStats.isFile()) {
+      return res.status(400).json({ error: 'Only files can be downloaded' });
     }
 
-    await fs.access(filePath);
-    
     // Set headers for download with safe Content-Disposition
     res.setHeader('Content-Disposition', createSafeContentDisposition(fileName));
     res.setHeader('Content-Type', 'application/octet-stream');
-    
+
     // Stream the file
     const fileStream = require('fs').createReadStream(filePath);
     fileStream.pipe(res);
-    
+
     // Handle errors during streaming
     fileStream.on('error', (err) => {
       logger.error(`File streaming error: ${err.message}`);
@@ -115,7 +156,7 @@ router.get('/download/*splat', async (req, res) => {
         res.status(500).json({ error: 'Failed to download file' });
       }
     });
-    
+
     logger.info(`File download started: ${splatPath(req)}`);
   } catch (err) {
     logger.error(`File download failed: ${err.message}`);
@@ -129,15 +170,15 @@ router.get('/download/*splat', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const items = await getDirectoryContents(config.uploadDir);
-    
+
     // Calculate total size across all files
     const totalSize = calculateTotalSize(items);
-    
-    res.json({ 
+
+    res.json({
       items: items,
       totalFiles: countFiles(items),
       totalSize: totalSize,
-      formattedTotalSize: formatFileSize(totalSize)
+      formattedTotalSize: formatFileSize(totalSize),
     });
   } catch (err) {
     logger.error(`Failed to list files: ${err.message}`);
@@ -150,22 +191,24 @@ router.get('/', async (req, res) => {
  */
 async function getDirectoryContents(dirPath, relativePath = '') {
   const items = [];
-  
+
   try {
     const entries = await fs.readdir(dirPath);
-    
+
     for (const entry of entries) {
       // Skip metadata directory and hidden files
       if (entry === '.metadata' || entry.startsWith('.')) {
         continue;
       }
-      
+
       const fullPath = path.join(dirPath, entry);
       const itemRelativePath = relativePath ? `${relativePath}/${entry}` : entry;
-      
+
       try {
-        const stats = await fs.stat(fullPath);
-        
+        // lstat, not stat: symlinks are left out of the library. Following
+        // them could list files outside the upload directory or loop forever.
+        const stats = await fs.lstat(fullPath);
+
         if (stats.isDirectory()) {
           const subItems = await getDirectoryContents(fullPath, itemRelativePath);
           items.push({
@@ -175,7 +218,7 @@ async function getDirectoryContents(dirPath, relativePath = '') {
             size: calculateTotalSize(subItems),
             formattedSize: formatFileSize(calculateTotalSize(subItems)),
             uploadDate: stats.mtime,
-            children: subItems
+            children: subItems,
           });
         } else if (stats.isFile()) {
           items.push({
@@ -185,7 +228,7 @@ async function getDirectoryContents(dirPath, relativePath = '') {
             size: stats.size,
             formattedSize: formatFileSize(stats.size),
             uploadDate: stats.mtime,
-            extension: path.extname(entry).toLowerCase()
+            extension: path.extname(entry).toLowerCase(),
           });
         }
       } catch (statErr) {
@@ -193,7 +236,7 @@ async function getDirectoryContents(dirPath, relativePath = '') {
         continue;
       }
     }
-    
+
     // Sort items: directories first, then files, both alphabetically
     items.sort((a, b) => {
       if (a.type !== b.type) {
@@ -201,11 +244,10 @@ async function getDirectoryContents(dirPath, relativePath = '') {
       }
       return a.name.localeCompare(b.name);
     });
-    
   } catch (err) {
     logger.error(`Failed to read directory ${dirPath}: ${err.message}`);
   }
-  
+
   return items;
 }
 
@@ -241,35 +283,30 @@ function countFiles(items) {
  * Delete file or directory
  */
 router.delete('/*splat', async (req, res) => {
-  // Get the file/directory path from the wildcard parameter
-  const itemPath = path.join(config.uploadDir, splatPath(req));
-  
   try {
-    // Ensure the path is within the upload directory (security check)
-    // Use requireExists=true since we're deleting an existing file
-    if (!isPathWithinUploadDir(itemPath, config.uploadDir, false)) {
-      logger.warn(`Attempted path traversal attack: ${splatPath(req)}`);
-      return res.status(403).json({ error: 'Access denied' });
-    }
-    
-    await fs.access(itemPath);
-    const stats = await fs.stat(itemPath);
-    
+    const itemPath = await resolveExistingUserPath(req, res);
+    if (!itemPath) return;
+
+    // lstat: deleting a symlink removes the link, never what it points to.
+    const stats = await fs.lstat(itemPath);
+
     if (stats.isDirectory()) {
       // Delete directory recursively
       await fs.rm(itemPath, { recursive: true, force: true });
       logger.info(`Directory deleted: ${splatPath(req)}`);
-      res.json({ message: 'Directory deleted successfully' });
     } else {
       // Delete file
       await fs.unlink(itemPath);
       logger.info(`File deleted: ${splatPath(req)}`);
-      res.json({ message: 'File deleted successfully' });
     }
+    await noteDeleted();
+    res.json({
+      message: stats.isDirectory() ? 'Directory deleted successfully' : 'File deleted successfully',
+    });
   } catch (err) {
     logger.error(`Deletion failed: ${err.message}`);
-    res.status(err.code === 'ENOENT' ? 404 : 500).json({ 
-      error: err.code === 'ENOENT' ? 'File or directory not found' : 'Failed to delete item' 
+    res.status(err.code === 'ENOENT' ? 404 : 500).json({
+      error: err.code === 'ENOENT' ? 'File or directory not found' : 'Failed to delete item',
     });
   }
 });
@@ -279,46 +316,37 @@ router.delete('/*splat', async (req, res) => {
  */
 router.put('/rename/*splat', async (req, res) => {
   const { newName } = req.body || {};
-  
+
   if (!newName || typeof newName !== 'string' || newName.trim() === '') {
     return res.status(400).json({ error: 'New name is required' });
   }
-  
-  // Get the current file/directory path from the wildcard parameter
-  const currentPath = path.join(config.uploadDir, splatPath(req));
-  const currentDir = path.dirname(currentPath);
-  
+
   try {
-    // Ensure the current path is within the upload directory (security check)
-    // Use requireExists=true since we're renaming an existing file
-    if (!isPathWithinUploadDir(currentPath, config.uploadDir, false)) {
-      logger.warn(`Attempted path traversal attack: ${splatPath(req)}`);
-      return res.status(403).json({ error: 'Access denied' });
-    }
-    
-    // Check if the current file/directory exists
-    await fs.access(currentPath);
+    const currentPath = await resolveExistingUserPath(req, res);
+    if (!currentPath) return;
+    const currentDir = path.dirname(currentPath);
+
     const stats = await fs.stat(currentPath);
-    
+
     // Sanitize the new name using our safe sanitization function
     const sanitizedNewName = sanitizeFilenameSafe(newName.trim());
-    
+
     // Validate that sanitization didn't result in an empty filename
     if (!sanitizedNewName || sanitizedNewName.trim() === '') {
       logger.warn(`Rename rejected: sanitized filename is empty (original: "${newName}")`);
       return res.status(400).json({ error: 'Invalid or empty filename after sanitization' });
     }
-    
+
     // Construct the new path
     const newPath = path.join(currentDir, sanitizedNewName);
-    
-    // Ensure the new path is also within the upload directory
-    // Use requireExists=false since the new path doesn't exist yet
+
+    // The destination does not exist yet. requireExists=false still checks
+    // that a symlink parent cannot land the new name outside the upload dir.
     if (!isPathWithinUploadDir(newPath, config.uploadDir, false)) {
       logger.warn(`Attempted to rename outside upload directory: ${newPath}`);
       return res.status(403).json({ error: 'Invalid destination path' });
     }
-    
+
     // Check if a file/directory with the new name already exists
     try {
       await fs.access(newPath);
@@ -329,30 +357,29 @@ router.put('/rename/*splat', async (req, res) => {
         throw err;
       }
     }
-    
+
     // Perform the rename operation
     await fs.rename(currentPath, newPath);
-    
+
     // Log the operation
     const itemType = stats.isDirectory() ? 'Directory' : 'File';
     logger.info(`${itemType} renamed: "${splatPath(req)}" -> "${sanitizedNewName}"`);
-    
+
     // Calculate relative path for response
     const relativePath = path.relative(config.uploadDir, newPath).replace(/\\/g, '/');
-    
-    res.json({ 
+
+    res.json({
       message: `${itemType} renamed successfully`,
       oldName: path.basename(splatPath(req)),
       newName: sanitizedNewName,
-      newPath: relativePath
+      newPath: relativePath,
     });
-    
   } catch (err) {
     logger.error(`Rename failed: ${err.message}`);
-    res.status(err.code === 'ENOENT' ? 404 : 500).json({ 
-      error: err.code === 'ENOENT' ? 'File or directory not found' : 'Failed to rename item' 
+    res.status(err.code === 'ENOENT' ? 404 : 500).json({
+      error: err.code === 'ENOENT' ? 'File or directory not found' : 'Failed to rename item',
     });
   }
 });
 
-module.exports = router; 
+module.exports = router;

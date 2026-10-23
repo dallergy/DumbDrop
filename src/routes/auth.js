@@ -1,125 +1,124 @@
+/**
+ * PIN login, session status, and logout.
+ * A correct PIN gets a signed session cookie for its role (upload or admin).
+ * Wrong PINs share one per-IP lockout with every other PIN entry point.
+ */
+
 const express = require('express');
 const router = express.Router();
 const { config } = require('../config');
 const logger = require('../utils/logger');
-const { 
-  validatePin, 
-  safeCompare, 
-  isLockedOut, 
-  recordAttempt, 
+const {
+  validatePin,
+  isLockedOut,
+  recordAttempt,
   resetAttempts,
   MAX_ATTEMPTS,
-  LOCKOUT_DURATION 
+  LOCKOUT_DURATION,
 } = require('../utils/security');
 const { getClientIp } = require('../utils/ipExtractor');
-const PORT = process.env.PORT || 3000;
-const NODE_ENV = process.env.NODE_ENV || 'production';
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const {
+  SESSION_COOKIE,
+  LEGACY_PIN_COOKIE,
+  sessionRole,
+  revokeSession,
+} = require('../utils/sessions');
+const { roleForPin, issueSessionCookie, canManage } = require('../middleware/security');
+
+function clearAuthCookies(res) {
+  res.clearCookie(SESSION_COOKIE, { path: '/' });
+  res.clearCookie(LEGACY_PIN_COOKIE, { path: '/' });
+}
+
 /**
- * Verify PIN
+ * Verify a PIN and start a session.
  */
 router.post('/verify-pin', (req, res) => {
   const { pin } = req.body || {};
   const ip = getClientIp(req);
-  
+
   try {
-    // If no PIN is set in config, always return success
-    if (!config.pin) {
-      // res.cookie('DUMBDROP_PIN', '', {
-      //   httpOnly: true,
-      //   secure: req.secure || (BASE_URL.startsWith('https') && NODE_ENV === 'production'),
-      //   sameSite: 'strict',
-      //   path: '/'
-      // });
-      res.clearCookie('DUMBDROP_PIN', { path: '/' });
-      return res.json({ success: true, error: null, path: '/' });
+    if (!config.pin && !config.adminPin) {
+      clearAuthCookies(res);
+      return res.json({ success: true, error: null, role: null });
     }
 
-    // Validate PIN format
     const cleanedPin = validatePin(pin);
     if (!cleanedPin) {
       logger.warn(`Invalid PIN format from IP: ${ip}`);
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Invalid PIN format. PIN must be 4-10 digits.' 
+        error: 'Invalid PIN format. PIN must be 4-10 digits.',
       });
     }
 
-    // Check for lockout
     if (isLockedOut(ip)) {
       const attempts = recordAttempt(ip);
       const timeLeft = Math.ceil(
         (LOCKOUT_DURATION - (Date.now() - attempts.lastAttempt)) / 1000 / 60
       );
-      
       logger.warn(`Login attempt from locked out IP: ${ip}`);
-      return res.status(429).json({ 
+      return res.status(429).json({
         success: false,
-        error: `Too many PIN verification attempts. Please try again in ${timeLeft} minutes.`
+        error: `Too many PIN verification attempts. Please try again in ${timeLeft} minutes.`,
       });
     }
 
-    // Verify the PIN using constant-time comparison
-    if (safeCompare(cleanedPin, config.pin)) {
-      // Reset attempts on successful login
+    const role = roleForPin(cleanedPin);
+    if (role) {
       resetAttempts(ip);
-      
-      // Set secure cookie with cleaned PIN
-      res.cookie('DUMBDROP_PIN', cleanedPin, {
-        httpOnly: true,
-        secure: req.secure || (BASE_URL.startsWith('https') && NODE_ENV === 'production'),
-        sameSite: 'strict',
-        path: '/',
-        maxAge: 24 * 60 * 60 * 1000
-      });
-
-      logger.info(`Successful PIN verification from IP: ${ip}`);
-      res.json({ success: true, error: null });
-    } else {
-      // Record failed attempt
-      const attempts = recordAttempt(ip);
-      const attemptsLeft = MAX_ATTEMPTS - attempts.count;
-      
-      logger.warn(`Failed PIN verification from IP: ${ip} (${attemptsLeft} attempts remaining)`);
-      res.status(401).json({ 
-        success: false, 
-        error: attemptsLeft > 0 ? 
-          `Invalid PIN. ${attemptsLeft} attempts remaining.` : 
-          'Too many PIN verification attempts. Account locked for 15 minutes.'
-      });
+      issueSessionCookie(req, res, role);
+      logger.info(`Successful ${role} PIN verification from IP: ${ip}`);
+      return res.json({ success: true, error: null, role });
     }
-  } catch (err) {
-    logger.error(`PIN verification error: ${err.message}`);
-    res.status(500).json({ success: false, error: 'Authentication failed' });
-  }
-});
 
-/**
- * Check if PIN protection is enabled
- */
-router.get('/pin-required', (req, res) => {
-  try {
-    res.json({ 
-      required: !!config.pin
+    const attempts = recordAttempt(ip);
+    const attemptsLeft = MAX_ATTEMPTS - attempts.count;
+    logger.warn(`Failed PIN verification from IP: ${ip} (${attemptsLeft} attempts remaining)`);
+    return res.status(401).json({
+      success: false,
+      error:
+        attemptsLeft > 0
+          ? `Invalid PIN. ${attemptsLeft} attempts remaining.`
+          : 'Too many PIN verification attempts. Account locked for 15 minutes.',
     });
   } catch (err) {
-    logger.error(`PIN check error: ${err.message}`);
-    res.status(500).json({ error: 'Failed to check PIN status' });
+    logger.error(`PIN verification error: ${err.message}`);
+    return res.status(500).json({ success: false, error: 'Authentication failed' });
   }
 });
 
 /**
- * Logout (clear PIN cookie)
+ * Whether the login page is needed.
+ * required: uploads need a PIN. adminLogin: an admin PIN exists.
  */
-router.post('/logout', (req, res) => {
-  try {
-    res.clearCookie('DUMBDROP_PIN', { path: '/' });
-    logger.info(`Logout successful for IP: ${getClientIp(req)}`);
-    res.json({ success: true });
-  } catch (err) {
-    logger.error(`Logout error: ${err.message}`);
-    res.status(500).json({ error: 'Logout failed' });
-  }
+router.get('/pin-required', (req, res) => {
+  res.json({
+    required: Boolean(config.pin),
+    adminLogin: Boolean(config.adminPin),
+  });
 });
 
-module.exports = router; 
+/**
+ * Current session, for the UI and for scripts.
+ */
+router.get('/session', (req, res) => {
+  const role = sessionRole(req);
+  res.json({
+    authenticated: Boolean(role),
+    role,
+    canManage: canManage(role),
+  });
+});
+
+/**
+ * Log out: revoke the session server-side and clear the cookies.
+ */
+router.post('/logout', (req, res) => {
+  revokeSession(req.cookies?.[SESSION_COOKIE]);
+  clearAuthCookies(res);
+  logger.info(`Logout for IP: ${getClientIp(req)}`);
+  res.json({ success: true });
+});
+
+module.exports = router;

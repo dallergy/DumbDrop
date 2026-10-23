@@ -15,13 +15,22 @@ const errorEl = document.getElementById('pin-error');
 
 fetch(apiUrl('/api/auth/pin-required'))
   .then((response) => {
-    if (response.status === 429) throw new Error('Too many attempts. Please wait before trying again.');
+    if (response.status === 429)
+      throw new Error('Too many attempts. Please wait before trying again.');
     return response.json();
   })
   .then((data) => {
-    if (!data.required) {
+    if (!data.required && !data.adminLogin) {
       window.location.href = apiUrl('/');
       return;
+    }
+    if (!data.required) {
+      // Uploads are open; this page is only for the admin.
+      document.getElementById('pin-prompt').textContent = 'Enter the admin PIN to manage files.';
+      document.getElementById('skip-login').hidden = false;
+    } else if (data.adminLogin) {
+      document.getElementById('pin-prompt').textContent =
+        'Enter your PIN. The admin PIN also unlocks file management.';
     }
     input.focus();
   })

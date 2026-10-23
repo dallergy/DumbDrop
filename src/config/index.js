@@ -15,7 +15,11 @@ const fs = require('fs'); // Get version from package.json
  * MAX_FILE_SIZE       - Max upload size in MB (default: 1024)
  * AUTO_UPLOAD         - Enable auto-upload (true/false, default: false)
  * SHOW_FILE_LIST      - Enable file listing in frontend (true/false, default: false)
- * DUMBDROP_PIN        - Security PIN for uploads (required for protected endpoints)
+ * UPLOAD_ONLY         - Disable list, download, rename, delete, and shares (true/false)
+ * MAX_STORAGE_MB      - Total upload-directory quota in MB (0 or unset = unlimited)
+ * DUMBDROP_PIN        - Security PIN for uploads (required in production)
+ * DUMBDROP_ADMIN_PIN  - Optional second PIN; when set, only it unlocks file management
+ * ALLOW_INSECURE_NO_PIN - Set true to boot production without a PIN
  * DUMBDROP_TITLE      - Site title (default: 'DumbDrop')
  * APPRISE_URL         - Apprise notification URL (optional)
  * APPRISE_MESSAGE     - Notification message template (default provided)
@@ -96,7 +100,10 @@ function ensureLocalUploadDirExists(uploadDir) {
       logConfig(`Local upload directory exists: ${uploadDir}`);
     }
   } catch (err) {
-    logConfig(`Failed to create local upload directory: ${uploadDir}. Error: ${err.message}`, 'warning');
+    logConfig(
+      `Failed to create local upload directory: ${uploadDir}. Error: ${err.message}`,
+      'warning'
+    );
   }
 }
 
@@ -128,7 +135,7 @@ const config = {
    * Set via BASE_URL in .env
    */
   baseUrl: BASE_URL,
-  
+
   // =====================
   // =====================
   // Upload settings
@@ -159,7 +166,25 @@ const config = {
    * Set via SHOW_FILE_LIST in .env
    */
   showFileList: process.env.SHOW_FILE_LIST === 'true',
-  
+  /**
+   * Upload-only mode hides listing, download, rename, delete, and shares.
+   * Set via UPLOAD_ONLY=true. Uploads, auth, health, and static assets stay up.
+   */
+  uploadOnly: process.env.UPLOAD_ONLY === 'true',
+  /**
+   * Total bytes allowed in the upload directory (0 = unlimited).
+   * Set via MAX_STORAGE_MB. In-progress uploads count against the cap.
+   */
+  maxStorageBytes: (() => {
+    const raw = process.env.MAX_STORAGE_MB;
+    if (raw === undefined || raw === '') return 0;
+    const sizeInMB = Number(raw);
+    if (!Number.isFinite(sizeInMB) || sizeInMB < 0) {
+      throw new Error('MAX_STORAGE_MB must be a non-negative number');
+    }
+    return Math.floor(sizeInMB * 1024 * 1024);
+  })(),
+
   // =====================
   // =====================
   // Security
@@ -169,6 +194,12 @@ const config = {
    * Set via DUMBDROP_PIN in .env
    */
   pin: validatePin(process.env.DUMBDROP_PIN),
+  /**
+   * Optional admin PIN. When set, list/download/rename/delete/shares need an
+   * admin session and DUMBDROP_PIN only unlocks uploads.
+   * Set via DUMBDROP_ADMIN_PIN in .env
+   */
+  adminPin: validatePin(process.env.DUMBDROP_ADMIN_PIN),
   /**
    * Trust proxy for X-Forwarded-For header (default: false for security)
    * Only enable if behind a trusted reverse proxy
@@ -180,10 +211,10 @@ const config = {
    * Restricts which proxies can set X-Forwarded-For header
    * Set via TRUSTED_PROXY_IPS in .env
    */
-  trustedProxyIps: process.env.TRUSTED_PROXY_IPS ? 
-    process.env.TRUSTED_PROXY_IPS.split(',').map(ip => ip.trim()) : 
-    null,
-  
+  trustedProxyIps: process.env.TRUSTED_PROXY_IPS
+    ? process.env.TRUSTED_PROXY_IPS.split(',').map((ip) => ip.trim())
+    : null,
+
   // =====================
   // =====================
   // UI settings
@@ -193,7 +224,7 @@ const config = {
    * Set via DUMBDROP_TITLE in .env
    */
   siteTitle: process.env.DUMBDROP_TITLE || DEFAULT_SITE_TITLE,
-  
+
   // =====================
   // =====================
   // Notification settings
@@ -207,13 +238,15 @@ const config = {
    * Notification message template (default provided)
    * Set via APPRISE_MESSAGE in .env
    */
-  appriseMessage: process.env.APPRISE_MESSAGE || 'New file uploaded - {filename} ({size}), Storage used {storage}',
+  appriseMessage:
+    process.env.APPRISE_MESSAGE ||
+    'New file uploaded - {filename} ({size}), Storage used {storage}',
   /**
    * Size unit for notifications (optional)
    * Set via APPRISE_SIZE_UNIT in .env
    */
   appriseSizeUnit: process.env.APPRISE_SIZE_UNIT,
-  
+
   // =====================
   // =====================
   // File extensions
@@ -222,9 +255,9 @@ const config = {
    * Allowed file extensions (comma-separated, optional)
    * Set via ALLOWED_EXTENSIONS in .env
    */
-  allowedExtensions: process.env.ALLOWED_EXTENSIONS ? 
-    process.env.ALLOWED_EXTENSIONS.split(',').map(ext => ext.trim().toLowerCase()) : 
-    null,
+  allowedExtensions: process.env.ALLOWED_EXTENSIONS
+    ? process.env.ALLOWED_EXTENSIONS.split(',').map((ext) => ext.trim().toLowerCase())
+    : null,
 
   /**
    * Max number of retries for client-side chunk uploads (default: 5)
@@ -240,7 +273,7 @@ const config = {
     if (isNaN(retries) || retries < 0) {
       logConfig(
         `Invalid CLIENT_MAX_RETRIES value: "${envValue}". Using default: ${defaultValue}`,
-        'warning',
+        'warning'
       );
       return logAndReturn('CLIENT_MAX_RETRIES', defaultValue, true);
     }
@@ -273,10 +306,38 @@ const config = {
 
 console.log(`Upload directory configured as: ${config.uploadDir}`);
 
+/**
+ * Who may use file management (list, download, rename, delete, shares):
+ *   'admin' - DUMBDROP_ADMIN_PIN is set; only an admin session
+ *   'off'   - UPLOAD_ONLY=true with no admin PIN; routes return 404
+ *   'pin'   - anyone who passes DUMBDROP_PIN (or everyone when no PIN)
+ */
+config.managementMode = config.adminPin ? 'admin' : config.uploadOnly ? 'off' : 'pin';
+
+/**
+ * A PIN variable that is set but not 4-10 digits used to switch
+ * authentication off without a word. Report it instead.
+ * @param {string} name
+ * @param {string|null} parsed
+ * @param {string[]} errors
+ */
+function checkPinVariable(name, parsed, errors) {
+  const raw = process.env[name];
+  if (raw !== undefined && raw.trim() !== '' && !parsed) {
+    errors.push(`${name} must be 4-10 digits (got a value that is not).`);
+  }
+}
+
 // Validate required settings
 function validateConfig() {
   const errors = [];
-  
+
+  checkPinVariable('DUMBDROP_PIN', config.pin, errors);
+  checkPinVariable('DUMBDROP_ADMIN_PIN', config.adminPin, errors);
+  if (config.pin && config.adminPin && config.pin === config.adminPin) {
+    errors.push('DUMBDROP_ADMIN_PIN must be different from DUMBDROP_PIN.');
+  }
+
   if (config.maxFileSize <= 0) {
     errors.push('MAX_FILE_SIZE must be greater than 0');
   }
@@ -293,13 +354,30 @@ function validateConfig() {
     logger.error(errorMsg);
     errors.push(errorMsg);
   }
-  
+
   if (config.nodeEnv === 'production') {
     if (!config.appriseUrl) {
       logger.info('Notifications disabled - No Configuration');
     }
+    // Read at call time so tests can opt out before initialize().
+    const allowInsecureNoPin = process.env.ALLOW_INSECURE_NO_PIN === 'true';
+    if (!config.pin && !allowInsecureNoPin) {
+      errors.push(
+        'DUMBDROP_PIN is required when NODE_ENV=production. ' +
+          'Set a 4-10 digit PIN, or set ALLOW_INSECURE_NO_PIN=true to let anyone upload' +
+          (config.adminPin ? '.' : ' and manage files.')
+      );
+    }
+    // Behind a TLS proxy without TRUST_PROXY every client shares the proxy's
+    // address, so one person's wrong PINs lock everybody out.
+    if (config.baseUrl.startsWith('https') && !config.trustProxy) {
+      logger.warn(
+        'BASE_URL is https but TRUST_PROXY is off. If a reverse proxy terminates TLS, set ' +
+          'TRUST_PROXY=true and TRUSTED_PROXY_IPS, or all clients share one lockout and rate limit.'
+      );
+    }
   }
-  
+
   if (errors.length > 0) {
     throw new Error('Configuration validation failed:\n' + errors.join('\n'));
   }
@@ -310,5 +388,5 @@ Object.freeze(config);
 
 module.exports = {
   config,
-  validateConfig
-}; 
+  validateConfig,
+};

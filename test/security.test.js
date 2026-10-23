@@ -5,6 +5,7 @@
 
 // Disable batch cleanup for tests
 process.env.DISABLE_BATCH_CLEANUP = 'true';
+process.env.ALLOW_INSECURE_NO_PIN = 'true';
 
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert');
@@ -307,38 +308,24 @@ describe('Security Tests', () => {
 
   describe('IP Spoofing Protection', () => {
     it('should not trust X-Forwarded-For header when TRUST_PROXY is false', async () => {
-      // Verify config.trustProxy is false by default
       assert.strictEqual(config.trustProxy, false, 'TRUST_PROXY should be false by default');
-      
-      // Make multiple requests with spoofed X-Forwarded-For headers
-      const spoofedIps = ['1.2.3.4', '5.6.7.8', '9.10.11.12', '13.14.15.16', '17.18.19.20', '21.22.23.24'];
-      const responses = [];
-      
-      for (const spoofedIp of spoofedIps) {
+
+      // This file runs without a PIN, so use an endpoint whose limiter counts
+      // every request (30/min). A different spoofed IP per request must not
+      // give each request its own bucket.
+      const statuses = [];
+      for (let i = 0; i < 32; i++) {
         const response = await makeRequest({
           host: 'localhost',
           port: server.address().port,
-          path: '/api/auth/verify-pin',
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Forwarded-For': spoofedIp,
-          },
-        }, {
-          pin: '9999', // Wrong PIN
+          path: '/api/auth/pin-required',
+          method: 'GET',
+          headers: { 'X-Forwarded-For': `10.0.${i}.1` },
         });
-        
-        responses.push(response);
+        statuses.push(response.status);
       }
-      
-      // Should be rate limited because all requests come from same real IP
-      // (spoofed headers should be ignored)
-      const rateLimitedOrLocked = responses.filter(
-        (r) => r.status === 429 || (r.status === 401 && r.data.error && r.data.error.includes('locked'))
-      );
-      
-      // After 5 failed attempts, should be locked out
-      assert.ok(rateLimitedOrLocked.length > 0, 'Rate limiting should apply despite spoofed headers');
+
+      assert.ok(statuses.includes(429), 'Rate limiting should apply despite spoofed headers');
     });
 
     it('should use socket IP when proxy trust is disabled', () => {
@@ -394,47 +381,22 @@ describe('Security Tests', () => {
     });
 
     it('should prevent rate limit bypass via header spoofing', async () => {
-      // This test verifies the fix for the reported vulnerability
-      // Make 6 requests with different X-Forwarded-For headers but same real IP
-      const attempts = [];
-      
-      for (let i = 0; i < 6; i++) {
-        attempts.push(
+      // The previous test already used up this IP's pin-required budget.
+      // Spoofed addresses must still land in that same, exhausted bucket.
+      const responses = await Promise.all(
+        Array.from({ length: 5 }, (_, i) =>
           makeRequest({
             host: 'localhost',
             port: server.address().port,
-            path: '/api/auth/verify-pin',
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Forwarded-For': `${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
-            },
-          }, {
-            pin: '0000', // Wrong PIN
+            path: '/api/auth/pin-required',
+            method: 'GET',
+            headers: { 'X-Forwarded-For': `192.0.2.${i + 1}` },
           })
-        );
-        
-        // Small delay between requests to avoid race conditions
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-      
-      const responses = await Promise.all(attempts);
-      
-      // Count failures (401) and rate limits (429)
-      const failures = responses.filter(r => r.status === 401);
-      const rateLimited = responses.filter(r => r.status === 429);
-      
-      // Should be locked out after 5 attempts, despite spoofed headers
-      // Either the 6th request is rate limited (429), or shows lockout message
-      const lastResponse = responses[responses.length - 1];
-      const isLockedOut = 
-        lastResponse.status === 429 || 
-        (lastResponse.status === 401 && lastResponse.data.error && 
-         (lastResponse.data.error.includes('locked') || lastResponse.data.error.includes('Too many')));
-      
+        )
+      );
       assert.ok(
-        failures.length >= 5 || rateLimited.length > 0 || isLockedOut,
-        'Should enforce rate limiting despite header spoofing attempts'
+        responses.every((r) => r.status === 429),
+        'Every spoofed request should hit the same exhausted limit'
       );
     });
   });

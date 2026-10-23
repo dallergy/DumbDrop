@@ -45,9 +45,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Production refuses to boot without a PIN (see ALLOW_INSECURE_NO_PIN).
+      - name: Refuses to start without a PIN
+        run: |
+          set +e
+          timeout 30 docker run --rm dumbdrop:ci
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ] || [ "$status" -eq 124 ]; then
+            echo "Container did not refuse to start without DUMBDROP_PIN (exit $status)"
+            exit 1
+          fi
+
       - name: Smoke test
         run: |
-          docker run -d --name dumbdrop -p 3000:3000 dumbdrop:ci
+          docker run -d --name dumbdrop -p 3000:3000 -e DUMBDROP_PIN=246810 dumbdrop:ci
           for i in $(seq 1 20); do
             curl -fsS http://localhost:3000/health && exit 0
             sleep 1
