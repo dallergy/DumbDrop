@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
-# Node 24 is Active LTS as of 2026; Alpine keeps the image small.
+# Node 24 (Krypton) is Active LTS. Pin the current security patch so the
+# image does not float back onto an older 24.x build.
 
-ARG NODE_IMAGE=node:24-alpine
+ARG NODE_IMAGE=node:24.22.1-alpine
 
 # ---- Apprise (notifications) lives in its own venv, built here so pip never
 # ---- reaches the runtime image.
@@ -9,7 +10,7 @@ FROM ${NODE_IMAGE} AS apprise
 RUN apk add --no-cache python3 py3-pip && \
     python3 -m venv /opt/venv && \
     /opt/venv/bin/pip install --no-cache-dir --upgrade pip && \
-    /opt/venv/bin/pip install --no-cache-dir apprise && \
+    /opt/venv/bin/pip install --no-cache-dir 'apprise==2.0.1' && \
     /opt/venv/bin/pip uninstall -y pip && \
     find /opt/venv -type d -name "__pycache__" -prune -exec rm -rf {} +
 

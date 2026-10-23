@@ -19,7 +19,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
 
       - run: npm ci
@@ -70,5 +70,5 @@ jobs:
       - name: Scan image for vulnerabilities
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            aquasec/trivy:0.74.0 image --scanners vuln --ignore-unfixed \
+            aquasec/trivy:0.76.1 image --scanners vuln --ignore-unfixed \
             --severity HIGH,CRITICAL --exit-code 1 dumbdrop:ci
