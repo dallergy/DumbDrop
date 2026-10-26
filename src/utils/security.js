@@ -5,6 +5,7 @@
  */
 
 const crypto = require('crypto');
+const { ipKeyGenerator } = require('express-rate-limit');
 const logger = require('./logger');
 
 /**
@@ -61,14 +62,30 @@ if (!process.env.DISABLE_BATCH_CLEANUP && !process.env.DISABLE_SECURITY_CLEANUP)
 }
 
 /**
+ * Bucket an IP the same way the rate limiters do: IPv4 as-is, IPv6 by its
+ * /56 prefix. One IPv6 client usually controls a whole /56 or /64, so keying
+ * by full address would hand out a fresh set of guesses per address.
+ * @param {string} ip - IP address
+ * @returns {string}
+ */
+function lockoutKey(ip) {
+  try {
+    return ipKeyGenerator(String(ip));
+  } catch {
+    return String(ip);
+  }
+}
+
+/**
  * Reset login attempts for an IP
  * @param {string} ip - IP address
  */
 function resetAttempts(ip) {
+  const key = lockoutKey(ip);
   // Successful API calls hit this on every request; only log when a counter existed.
-  if (!loginAttempts.has(ip)) return;
-  loginAttempts.delete(ip);
-  logger.info(`Reset login attempts for IP: ${ip}`);
+  if (!loginAttempts.has(key)) return;
+  loginAttempts.delete(key);
+  logger.info(`Reset login attempts for ${key}`);
 }
 
 /**
@@ -84,7 +101,7 @@ function clearLoginAttempts() {
  * @returns {boolean} True if IP is locked out
  */
 function isLockedOut(ip) {
-  const attempts = loginAttempts.get(ip);
+  const attempts = loginAttempts.get(lockoutKey(ip));
   if (!attempts) return false;
 
   if (attempts.count >= MAX_ATTEMPTS) {
@@ -103,11 +120,12 @@ function isLockedOut(ip) {
  * @returns {{count: number, lastAttempt: number}} Attempt details
  */
 function recordAttempt(ip) {
-  const attempts = loginAttempts.get(ip) || { count: 0, lastAttempt: 0 };
+  const key = lockoutKey(ip);
+  const attempts = loginAttempts.get(key) || { count: 0, lastAttempt: 0 };
   attempts.count += 1;
   attempts.lastAttempt = Date.now();
-  loginAttempts.set(ip, attempts);
-  logger.warn(`Recorded failed login attempt for IP: ${ip} (attempt ${attempts.count})`);
+  loginAttempts.set(key, attempts);
+  logger.warn(`Recorded failed login attempt for ${key} (attempt ${attempts.count})`);
   return attempts;
 }
 
@@ -142,6 +160,7 @@ function safeCompare(a, b) {
 module.exports = {
   MAX_ATTEMPTS,
   LOCKOUT_DURATION,
+  lockoutKey,
   resetAttempts,
   clearLoginAttempts,
   isLockedOut,

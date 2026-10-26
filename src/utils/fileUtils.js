@@ -68,6 +68,25 @@ async function calculateDirectorySize(directoryPath) {
 }
 
 /**
+ * Explain an unwritable upload folder in terms of what to fix.
+ * The usual cause in Docker is a host folder owned by someone other than the
+ * container user, often one Docker created as root because the volume path
+ * in the compose file did not exist.
+ * @param {string} directoryPath
+ * @returns {string}
+ */
+function permissionHint(directoryPath) {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : 'unknown';
+  const gid = typeof process.getgid === 'function' ? process.getgid() : 'unknown';
+  return (
+    `${directoryPath} is not writable by this process (uid ${uid}, gid ${gid}). ` +
+    `On the host, check that the folder mounted at ${directoryPath} exists ` +
+    `(a missing path is created by Docker as root), then run: ` +
+    `sudo chown -R ${uid}:${gid} <host folder>`
+  );
+}
+
+/**
  * Ensure a directory exists and is writable
  * @param {string} directoryPath - Path to directory
  * @returns {Promise<void>}
@@ -82,6 +101,7 @@ async function ensureDirectoryExists(directoryPath) {
     logger.success(`Directory is writable: ${directoryPath}`);
   } catch (err) {
     logger.error(`Directory error: ${err.message}`);
+    if (err.code === 'EACCES' || err.code === 'EPERM') logger.error(permissionHint(directoryPath));
     throw new Error(`Failed to access or create directory: ${directoryPath}`, { cause: err });
   }
 }
