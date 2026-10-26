@@ -10,7 +10,7 @@ FROM ${NODE_IMAGE} AS apprise
 RUN apk add --no-cache python3 py3-pip && \
     python3 -m venv /opt/venv && \
     /opt/venv/bin/pip install --no-cache-dir --upgrade pip && \
-    /opt/venv/bin/pip install --no-cache-dir 'apprise==2.0.1' && \
+    /opt/venv/bin/pip install --no-cache-dir 'apprise==2.1.0' && \
     /opt/venv/bin/pip uninstall -y pip && \
     find /opt/venv -type d -name "__pycache__" -prune -exec rm -rf {} +
 

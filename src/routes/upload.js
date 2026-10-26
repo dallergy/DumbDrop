@@ -59,6 +59,15 @@ const META_FLUSH_BYTES = 32 * 1024 * 1024;
 // Remember finished uploads briefly so late duplicate/retried chunks get a
 // clean "complete" answer instead of a confusing 404.
 const COMPLETED_TTL_MS = 5 * 60 * 1000;
+// "name (1).ext" ... "name (N).ext" before giving up on a free name.
+const MAX_NAME_ATTEMPTS = 10000;
+
+// Upload IDs are crypto.randomBytes(16) in hex. Anything else is not ours.
+const UPLOAD_ID_PATTERN = /^[0-9a-f]{32}$/;
+
+function isValidUploadId(uploadId) {
+  return typeof uploadId === 'string' && UPLOAD_ID_PATTERN.test(uploadId);
+}
 
 // Keep partial-file handles open across chunks to avoid open/close per chunk
 const openHandles = new Map();
@@ -68,7 +77,7 @@ const recentlyCompleted = new Map();
 // --- Helper Functions for Metadata ---
 
 async function readUploadMetadata(uploadId) {
-  if (!uploadId || typeof uploadId !== 'string' || uploadId.includes('..')) {
+  if (!isValidUploadId(uploadId)) {
     logger.warn(`Attempted to read metadata with invalid uploadId: ${uploadId}`);
     return null;
   }
@@ -86,7 +95,7 @@ async function readUploadMetadata(uploadId) {
 }
 
 async function writeUploadMetadata(uploadId, metadata) {
-  if (!uploadId || typeof uploadId !== 'string' || uploadId.includes('..')) {
+  if (!isValidUploadId(uploadId)) {
     logger.error(`Attempted to write metadata with invalid uploadId: ${uploadId}`);
     return; // Prevent writing
   }
@@ -269,7 +278,7 @@ async function forgetUpload(uploadId) {
 }
 
 async function deleteUploadMetadata(uploadId) {
-  if (!uploadId || typeof uploadId !== 'string' || uploadId.includes('..')) {
+  if (!isValidUploadId(uploadId)) {
     logger.warn(`Attempted to delete metadata with invalid uploadId: ${uploadId}`);
     return;
   }
@@ -286,6 +295,72 @@ async function deleteUploadMetadata(uploadId) {
 }
 
 /**
+ * "name.ext", "name (1).ext", "name (2).ext", ... in the same folder.
+ * @param {string} desiredPath
+ */
+function* candidatePaths(desiredPath) {
+  const dir = path.dirname(desiredPath);
+  const ext = path.extname(desiredPath);
+  const baseName = path.basename(desiredPath, ext);
+  yield desiredPath;
+  for (let counter = 1; counter <= MAX_NAME_ATTEMPTS; counter += 1) {
+    yield path.join(dir, `${baseName} (${counter})${ext}`);
+  }
+}
+
+/**
+ * Pick a free name for a new upload and claim it in one atomic step.
+ * The claim is the .partial file (or, for an empty upload, the final file)
+ * created with O_EXCL, so two uploads of the same name started together can
+ * never share a partial file: the second sees EEXIST and moves on.
+ * @param {string} desiredPath
+ * @param {number} size
+ * @returns {Promise<string>} final path whose claim now exists on disk
+ */
+async function claimUploadPath(desiredPath, size) {
+  for (const candidate of candidatePaths(desiredPath)) {
+    if (fsSync.existsSync(candidate)) continue;
+    const claim = size === 0 ? candidate : `${candidate}.partial`;
+    try {
+      const handle = await fs.open(claim, 'wx');
+      await handle.close();
+      return candidate;
+    } catch (err) {
+      if (err.code === 'EEXIST') continue;
+      throw err;
+    }
+  }
+  throw new Error(`No free file name for ${desiredPath}`);
+}
+
+/**
+ * Move a finished partial file to its final name without replacing anything.
+ * A hard link fails with EEXIST instead of overwriting, so a file that took
+ * the name after init (another upload, or one copied in by hand) is kept and
+ * this upload gets the next free name. Filesystems without hard links fall
+ * back to check-then-rename.
+ * @param {string} partialPath
+ * @param {string} desiredPath
+ * @returns {Promise<string>} the path the file ended up at
+ */
+async function moveIntoPlace(partialPath, desiredPath) {
+  for (const candidate of candidatePaths(desiredPath)) {
+    try {
+      await fs.link(partialPath, candidate);
+      await fs.unlink(partialPath);
+      return candidate;
+    } catch (err) {
+      if (err.code === 'EEXIST') continue;
+      if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EXDEV', 'ENOSYS'].includes(err.code)) throw err;
+      if (fsSync.existsSync(candidate)) continue;
+      await fs.rename(partialPath, candidate);
+      return candidate;
+    }
+  }
+  throw new Error(`No free file name for ${desiredPath}`);
+}
+
+/**
  * Move the finished .partial file into place and clean up session state.
  * Only called once all in-flight chunk requests for the upload have drained.
  */
@@ -295,7 +370,11 @@ async function finalizeUpload(uploadId, metadata) {
   metadataCache.delete(uploadId);
   rememberCompleted(uploadId, metadata.fileSize);
   try {
-    await fs.rename(metadata.partialFilePath, metadata.filePath);
+    const finalPath = await moveIntoPlace(metadata.partialFilePath, metadata.filePath);
+    if (finalPath !== metadata.filePath) {
+      logger.warn(`${metadata.filePath} appeared during upload; saved as ${finalPath} instead`);
+      metadata.filePath = finalPath;
+    }
     logger.success(
       `Upload completed and finalized: ${metadata.originalFilename} as ${metadata.filePath} (${metadata.fileSize} bytes)`
     );
@@ -416,6 +495,8 @@ router.post('/init', async (req, res) => {
   // Declared outside try so a failure after reserveStorage still releases it.
   let uploadId;
   let holdingReservation = false;
+  // File created to claim the name; removed again if init fails.
+  let claimedPath = null;
 
   try {
     // --- Path handling and Sanitization ---
@@ -494,41 +575,23 @@ router.post('/init', async (req, res) => {
       await fs.mkdir(config.uploadDir, { recursive: true }); // Ensure base upload dir exists
     }
 
-    // --- Check Final Path Collision & Get Unique Name if Needed ---
-    let checkPath = finalFilePath;
-    let counter = 1;
-    while (fsSync.existsSync(checkPath)) {
-      logger.warn(`Final destination file already exists: ${checkPath}. Generating unique name.`);
-      const dir = path.dirname(finalFilePath);
-      const ext = path.extname(finalFilePath);
-      const baseName = path.basename(finalFilePath, ext);
-      checkPath = path.join(dir, `${baseName} (${counter})${ext}`);
-      counter++;
-    }
-    if (checkPath !== finalFilePath) {
-      logger.info(`Using unique final path: ${checkPath}`);
-      finalFilePath = checkPath;
-
-      // Validate the unique path
-      if (!isPathWithinUploadDir(finalFilePath, config.uploadDir, false)) {
-        logger.error(`Path traversal detected in unique path: ${finalFilePath}`);
-        await releaseReservation(uploadId);
-        holdingReservation = false;
-        return res.status(403).json({ error: 'Invalid file path' });
-      }
-
-      // If path changed, ensure directory exists (might be needed if baseName contained '/')
-      await fs.mkdir(path.dirname(finalFilePath), { recursive: true });
+    // --- Claim a free final name (atomic, so concurrent same-name uploads differ) ---
+    const desiredPath = finalFilePath;
+    finalFilePath = await claimUploadPath(desiredPath, size);
+    claimedPath = size === 0 ? finalFilePath : `${finalFilePath}.partial`;
+    if (finalFilePath !== desiredPath) {
+      logger.info(`Using unique final path: ${finalFilePath}`);
     }
 
     const partialFilePath = finalFilePath + '.partial';
 
-    // Validate the partial file path as well
-    if (!isPathWithinUploadDir(partialFilePath, config.uploadDir, false)) {
-      logger.error(`Path traversal detected in partial path: ${partialFilePath}`);
-      await releaseReservation(uploadId);
-      holdingReservation = false;
-      return res.status(403).json({ error: 'Invalid file path' });
+    // The claim only changes the base name, but re-check both paths anyway.
+    if (
+      !isPathWithinUploadDir(finalFilePath, config.uploadDir, false) ||
+      !isPathWithinUploadDir(partialFilePath, config.uploadDir, false)
+    ) {
+      logger.error(`Path traversal detected in claimed path: ${finalFilePath}`);
+      throw new Error('Claimed path left the upload directory');
     }
 
     // --- Create and Persist Metadata ---
@@ -551,14 +614,11 @@ router.post('/init', async (req, res) => {
       `Initialized persistent upload: ${uploadId} for ${safeFilename} -> ${finalFilePath}`
     );
 
-    if (size > 0) {
-      await fs.writeFile(partialFilePath, '');
-    }
-
     // --- Handle Zero-Byte Files --- // (Important: Handle *after* metadata potentially exists)
     if (size === 0) {
       try {
-        await fs.writeFile(finalFilePath, ''); // Create the empty file
+        // The empty final file was created when the name was claimed.
+        claimedPath = null;
         logger.success(
           `Completed zero-byte file upload: ${metadata.originalFilename} as ${finalFilePath}`
         );
@@ -577,6 +637,7 @@ router.post('/init', async (req, res) => {
 
     res.json({ uploadId, maxChunkBytes: MAX_CHUNK_BYTES });
   } catch (err) {
+    if (claimedPath) await fs.rm(claimedPath, { force: true }).catch(() => {});
     if (holdingReservation && uploadId) {
       // Drop the meta file too, or the next quota check still counts it from disk.
       await releaseReservation(uploadId).catch(() => {});
@@ -601,6 +662,9 @@ router.get('/status/:uploadId', async (req, res) => {
       ranges: [],
       missing: [],
     });
+  }
+  if (!isValidUploadId(uploadId)) {
+    return res.status(404).json({ error: 'Upload session not found' });
   }
   try {
     const metadata = await getCachedMetadata(uploadId);
@@ -631,6 +695,10 @@ router.post('/chunk/:uploadId', async (req, res) => {
     logger.debug(`[DEMO] Received chunk for ${uploadId}`);
     const demoProgress = Math.min(100, Math.random() * 100);
     return reject(req, res, 200, { bytesReceived: 0, progress: demoProgress, complete: false });
+  }
+
+  if (!isValidUploadId(uploadId)) {
+    return reject(req, res, 404, { error: 'Upload session not found or already completed' });
   }
 
   const clientBatchId = req.headers['x-batch-id'];
@@ -790,6 +858,9 @@ router.post('/cancel/:uploadId', async (req, res) => {
   }
 
   const { uploadId } = req.params;
+  if (!isValidUploadId(uploadId)) {
+    return res.status(404).json({ error: 'Upload session not found' });
+  }
   logger.info(`Received cancel request for upload: ${uploadId}`);
 
   try {
@@ -836,4 +907,5 @@ module.exports = {
   readUploadMetadata,
   writeUploadMetadata,
   deleteUploadMetadata,
+  moveIntoPlace,
 };
