@@ -1,6 +1,6 @@
 {
   "name": "dumbdrop",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -9,7 +9,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "test": "node --test test/**/*.test.js",
-    "predev": "node -e \"const v=process.versions.node.split('.');if(v[0]<20) {console.error('Node.js >=20.0.0 required');process.exit(1)}\""
+    "predev": "node -e \"const v=process.versions.node.split('.');if(v[0]<22) {console.error('Node.js >=22.0.0 required');process.exit(1)}\""
   },
   "keywords": [],
   "author": "",
@@ -19,21 +19,24 @@
     "archiver": "^8.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
-    "dotenv": "^18.0.9",
+    "dotenv": "^18.0.10",
     "express": "^5.3.0",
-    "express-rate-limit": "^8.7.1",
+    "express-rate-limit": "^8.7.4",
     "helmet": "^8.3.0",
     "multer": "^2.5.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eslint": "^10.13.0",
+    "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-n": "^18.5.0",
-    "prettier": "^3.9.10"
+    "prettier": "^3.10.0"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
+  },
+  "overrides": {
+    "minimatch": "^11.0.8"
   }
 }

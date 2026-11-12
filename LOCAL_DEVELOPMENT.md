@@ -2,8 +2,8 @@
 
 ## Prerequisites
 
-- **Node.js** >= 20.0.0  
-  _Why?_: The app uses features only available in Node 20+.
+- **Node.js** >= 22.0.0 (26 LTS recommended; the Docker image and CI use it)  
+  _Why?_: Node 20 is end-of-life, and the app relies on current Node features such as `node --watch`.
 - **npm** (comes with Node.js)
 - **Python 3** (for notification testing, optional)
 - **Apprise** (for notification testing, optional)
