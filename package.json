@@ -9,7 +9,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "test": "node --test test/**/*.test.js",
-    "predev": "node -e \"const v=process.versions.node.split('.');if(v[0]<22) {console.error('Node.js >=22.0.0 required');process.exit(1)}\""
+    "predev": "node -e \"const [a,b]=process.versions.node.split('.').map(Number);if(a<22||(a===22&&b<13)){console.error('Node.js >=22.13.0 required');process.exit(1)}\""
   },
   "keywords": [],
   "author": "",
@@ -34,7 +34,7 @@
     "prettier": "^3.10.0"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.13.0"
   },
   "overrides": {
     "minimatch": "^11.0.8"

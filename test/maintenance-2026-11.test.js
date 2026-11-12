@@ -19,6 +19,21 @@ process.env.BASE_URL = 'http://localhost:3000/';
 const { describe, it, after } = require('node:test');
 const assert = require('node:assert');
 const util = require('node:util');
+const childProcess = require('node:child_process');
+const { EventEmitter } = require('node:events');
+
+// notifications.js captures spawn when it loads, so replace it first. The
+// fake never starts the real apprise binary and always finishes at once.
+const spawnCalls = [];
+childProcess.spawn = (command, args) => {
+  spawnCalls.push({ command, args });
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  process.nextTick(() => child.emit('close', 0));
+  return child;
+};
+
 const { config } = require('../src/config');
 const { sendNotification } = require('../src/services/notifications');
 
@@ -54,10 +69,13 @@ describe('upload notifications', () => {
 
   it('do not log the Apprise URL, which usually carries a token', async () => {
     const secretUrl = 'tgram://123456:SECRET-BOT-TOKEN/987';
-    // Point at a missing binary so the test never sends anything.
+    spawnCalls.length = 0;
     const output = await captureConsole(() =>
       sendNotification('report.pdf', 1024, { ...config, appriseUrl: secretUrl, uploadDir })
     );
+    // The stubbed apprise really ran, so the success path's logging was covered.
+    assert.strictEqual(spawnCalls.length, 1);
+    assert.strictEqual(spawnCalls[0].command, 'apprise');
     assert.ok(!output.includes('SECRET-BOT-TOKEN'), `Apprise URL leaked to logs:\n${output}`);
   });
 });

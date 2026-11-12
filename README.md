@@ -468,7 +468,7 @@ See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 
 ### Stack
 
-- **Backend**: Node.js (>=22.0.0, image uses Node 26 LTS Alpine) with Express 5
+- **Backend**: Node.js (>=22.13.0, image uses Node 26 LTS Alpine) with Express 5
 - **Frontend**: Vanilla JavaScript modules and plain CSS (no build step, no runtime dependencies)
 - **Container**: Docker multi-stage build, non-root user, `/health` check
 - **Security**: Helmet CSP, rate limiting, httpOnly PIN cookies

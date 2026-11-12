@@ -28,6 +28,21 @@ jobs:
       - name: Audit dependencies
         run: npm audit --audit-level=moderate
 
+  # The image runs Node 26; this keeps the supported floor (package.json
+  # engines) honest, since archiver 8 needs require(esm) from 22.12+.
+  test-node-floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
   image:
     runs-on: ubuntu-latest
     steps:

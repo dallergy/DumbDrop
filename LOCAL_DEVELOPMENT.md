@@ -2,8 +2,9 @@
 
 ## Prerequisites
 
-- **Node.js** >= 22.0.0 (26 LTS recommended; the Docker image and CI use it)  
-  _Why?_: Node 20 is end-of-life, and the app relies on current Node features such as `node --watch`.
+- **Node.js** >= 22.13.0 (26 LTS recommended; the Docker image uses it)  
+  _Why?_: archiver 8 is an ES module loaded with `require()`, which Node only supports
+  without a flag from 22.12; ESLint 10 needs 22.13. Node 20 is end-of-life.
 - **npm** (comes with Node.js)
 - **Python 3** (for notification testing, optional)
 - **Apprise** (for notification testing, optional)
